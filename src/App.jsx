@@ -1,255 +1,491 @@
-import { useState, useEffect } from 'react'
-import { supabase } from './supabaseClient'
+import React, { useState, useEffect, useMemo } from 'react';
+import { supabase } from './supabaseClient';
+import { Play, Clock, CheckCircle, XCircle, BarChart2, BookOpen, Activity, LogOut, ChevronRight, SkipForward, AlertCircle, Calendar } from 'lucide-react';
+
+const TIME_PER_QUESTION_SEC = 180; // 3 minutes[cite: 12]
+
+// --- Utility: Format Time[cite: 12] ---
+const formatTime = (seconds) => {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s < 10 ? '0' : ''}${s}`;
+};
 
 export default function App() {
-  const [session, setSession] = useState(null)
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
+  const [session, setSession] = useState(null);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [authLoading, setAuthLoading] = useState(true);
   
-  const [screen, setScreen] = useState('dashboard') // dashboard, quiz, result
-  const [questions, setQuestions] = useState([])
-  const [currentIndex, setCurrentIndex] = useState(0)
-  const [score, setScore] = useState(0)
-  const [loading, setLoading] = useState(false)
+  const [view, setView] = useState('dashboard'); // 'dashboard', 'quiz', 'results'
+  const [activeTab, setActiveTab] = useState('Dashboard'); // Sidebar tabs
   
-  // Persistent Theme Setup
-  const [isDarkMode, setIsDarkMode] = useState(() => {
-    return localStorage.getItem('theme') === 'dark'
-  })
+  // App State
+  const [stats, setStats] = useState(null);
+  const [questions, setQuestions] = useState([]);
+  const [quizResults, setQuizResults] = useState([]);
+  const [quizScore, setQuizScore] = useState(0);
 
-  useEffect(() => {
-    localStorage.setItem('theme', isDarkMode ? 'dark' : 'light')
-  }, [isDarkMode])
+  // Filters from DB[cite: 13]
+  const [availableSets, setAvailableSets] = useState([]);
+  const [availableTypes, setAvailableTypes] = useState([]);
 
-  // Authentication & 7-Day Inactivity Tracker
+  // --- 1. Auth & Data Initialization ---
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      handleSession(session)
-    })
+      setSession(session);
+      setAuthLoading(false);
+    });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      handleSession(session)
-    })
+      setSession(session);
+    });
 
-    return () => subscription.unsubscribe()
-  }, [])
+    return () => subscription.unsubscribe();
+  }, []);
 
-  const handleSession = (session) => {
+  useEffect(() => {
     if (session) {
-      const lastActive = localStorage.getItem('lastActiveTime')
-      const now = new Date().getTime()
-      const sevenDays = 7 * 24 * 60 * 60 * 1000
-
-      if (lastActive && (now - parseInt(lastActive)) > sevenDays) {
-        // Log out if inactive for > 7 days
-        supabase.auth.signOut()
-        setSession(null)
-        alert("You have been logged out due to 7 days of inactivity.")
-      } else {
-        setSession(session)
-        localStorage.setItem('lastActiveTime', now.toString())
-      }
-    } else {
-      setSession(null)
+      loadUserStats();
+      fetchFilters();
     }
-  }
+  }, [session, view]);
 
-  // Auth Functions
-  const handleSignUp = async (e) => {
-    e.preventDefault()
-    setLoading(true)
-    const { error } = await supabase.auth.signUp({ email, password })
-    if (error) alert(error.message)
-    else alert('Account created! You are now logged in.')
-    setLoading(false)
-  }
+  const loadUserStats = () => {
+    // For MVP, tracking accurate stats in localStorage keyed to the user's ID
+    const savedStats = localStorage.getItem(`me_stats_${session.user.id}`);
+    if (savedStats) {
+      setStats(JSON.parse(savedStats));
+    } else {
+      setStats({
+        totalQuizzes: 0,
+        totalQuestions: 0,
+        correctAnswers: 0,
+        totalTimeSpent: 0,
+        history: {}, // Format: { 'YYYY-MM-DD': questionsAnsweredCount }
+        subjects: {
+          'PIPE': { correct: 0, total: 0 },
+          'MDSP': { correct: 0, total: 0 },
+          'MESL': { correct: 0, total: 0 }
+        }
+      });
+    }
+  };
 
+  const fetchFilters = async () => {
+    const { data, error } = await supabase.from('questions').select('set_name, question_type');
+    if (data) {
+      const sets = [...new Set(data.map(q => q.set_name).filter(Boolean))];
+      const types = [...new Set(data.map(q => q.question_type).filter(Boolean))];
+      setAvailableSets(sets);
+      setAvailableTypes(types);
+    }
+  };
+
+  // --- 2. Auth Handlers ---
   const handleLogin = async (e) => {
-    e.preventDefault()
-    setLoading(true)
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) alert(error.message)
-    setLoading(false)
-  }
+    e.preventDefault();
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) alert(error.message);
+  };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut()
-  }
+    await supabase.auth.signOut();
+  };
 
-  // Quiz Functions
-  const shuffleOptions = (q) => {
-    const correctMap = { 'A': q.option_a, 'B': q.option_b, 'C': q.option_c, 'D': q.option_d }
-    const correctText = correctMap[String(q.correct_answer).toUpperCase()] || q.option_a
-    const options = [q.option_a, q.option_b, q.option_c, q.option_d]
-    
-    for (let i = options.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [options[i], options[j]] = [options[j], options[i]];
-    }
-    return { ...q, shuffled_options: options, correct_text: correctText }
-  }
-
-  const startQuiz = async (limit) => {
-    setLoading(true)
+  // --- 3. Start Quiz (Supabase Fetch) ---
+  const startQuiz = async (selectedSet, selectedType, limit) => {
     try {
-      const { data, error } = await supabase.from('questions').select('*')
-      if (error) throw error
-      if (!data || data.length === 0) return alert("No questions found!")
+      let query = supabase.from('questions').select('*');
+      if (selectedSet !== 'All') query = query.eq('set_name', selectedSet); //[cite: 13]
+      if (selectedType !== 'All') query = query.eq('question_type', selectedType); //[cite: 13]
+      
+      const { data, error } = await query;
+      if (error) throw error;
+      if (!data || data.length === 0) return alert("No questions found for these filters.");
 
-      const randomizedQuiz = data.sort(() => Math.random() - 0.5).slice(0, limit).map(shuffleOptions)
-      setQuestions(randomizedQuiz)
-      setCurrentIndex(0)
-      setScore(0)
-      setScreen('quiz')
-      localStorage.setItem('lastActiveTime', new Date().getTime().toString())
-    } catch (err) {
-      alert("Error: " + err.message)
-    } finally {
-      setLoading(false)
+      // Shuffle & Format[cite: 12]
+      const randomized = data.sort(() => Math.random() - 0.5).slice(0, limit).map(q => {
+        const correctMap = { 'A': q.option_a, 'B': q.option_b, 'C': q.option_c, 'D': q.option_d };
+        const correctText = correctMap[String(q.correct_answer).toUpperCase()] || q.option_a;
+        let options = [q.option_a, q.option_b, q.option_c, q.option_d];
+        options.sort(() => Math.random() - 0.5); // Shuffle choices
+
+        return { ...q, choices: options, correct_text: correctText };
+      });
+
+      setQuestions(randomized);
+      setView('quiz');
+    } catch (error) {
+      alert("Error generating quiz: " + error.message);
     }
-  }
+  };
 
-  const handleAnswer = (selectedText) => {
-    if (selectedText === questions[currentIndex].correct_text) setScore(score + 1)
-    if (currentIndex + 1 < questions.length) setCurrentIndex(currentIndex + 1)
-    else setScreen('result')
-  }
+  // --- 4. End Quiz & Save Real Stats ---
+  const handleQuizComplete = (finalResults, finalScore) => {
+    const totalTimeForQuiz = finalResults.reduce((acc, curr) => acc + curr.timeSpent, 0);
+    const newStats = { ...stats };
+    
+    newStats.totalQuizzes += 1;
+    newStats.totalQuestions += finalResults.length;
+    newStats.correctAnswers += finalScore;
+    newStats.totalTimeSpent += totalTimeForQuiz;
 
-  // Dynamic Theming
-  const theme = {
-    bg: isDarkMode ? '#0f172a' : '#f8fafc',
-    sidebar: isDarkMode ? '#1e293b' : '#ffffff',
-    text: isDarkMode ? '#f1f5f9' : '#0f172a',
-    textMuted: isDarkMode ? '#94a3b8' : '#64748b',
-    card: isDarkMode ? '#1e293b' : '#ffffff',
-    border: isDarkMode ? '#334155' : '#e2e8f0',
-    primary: '#3b82f6',
-    cardBg1: '#ef4444', // Red stat card
-    cardBg2: '#8b5cf6', // Purple stat card
-    cardBg3: '#f97316'  // Orange stat card
-  }
+    // Accurate Heatmap Tracking
+    const today = new Date().toISOString().split('T')[0];
+    newStats.history[today] = (newStats.history[today] || 0) + finalResults.length;
+
+    // Subject Tracking
+    finalResults.forEach(res => {
+      const subj = res.question.subject || 'Mixed';
+      if (!newStats.subjects[subj]) newStats.subjects[subj] = { correct: 0, total: 0 };
+      newStats.subjects[subj].total += 1;
+      if (res.isCorrect) newStats.subjects[subj].correct += 1;
+    });
+
+    setStats(newStats);
+    localStorage.setItem(`me_stats_${session.user.id}`, JSON.stringify(newStats));
+    
+    setQuizResults(finalResults);
+    setQuizScore(finalScore);
+    setView('results');
+  };
 
   // --- UI COMPONENTS ---
+  if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><div className="animate-spin h-12 w-12 border-b-2 border-blue-600 rounded-full"></div></div>;
+
   if (!session) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.bg, color: theme.text, fontFamily: 'sans-serif' }}>
-        <div style={{ padding: '40px', backgroundColor: theme.card, borderRadius: '12px', border: `1px solid ${theme.border}`, width: '100%', maxWidth: '400px' }}>
-          <h2 style={{ marginBottom: '20px', textAlign: 'center' }}>ME Board Reviewer</h2>
-          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-            <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required style={{ padding: '12px', borderRadius: '6px', border: `1px solid ${theme.border}`, backgroundColor: theme.bg, color: theme.text }} />
-            <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} required style={{ padding: '12px', borderRadius: '6px', border: `1px solid ${theme.border}`, backgroundColor: theme.bg, color: theme.text }} />
-            <button type="submit" disabled={loading} style={{ padding: '12px', backgroundColor: theme.primary, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>{loading ? 'Logging in...' : 'Login'}</button>
-            <button type="button" onClick={handleSignUp} style={{ padding: '12px', backgroundColor: 'transparent', color: theme.text, border: `1px solid ${theme.border}`, borderRadius: '6px', cursor: 'pointer' }}>Sign Up</button>
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 font-sans">
+        <div className="p-10 bg-white rounded-2xl shadow-sm border border-slate-200 w-full max-w-sm">
+          <h2 className="text-2xl font-bold mb-6 text-center text-slate-800">ME Board Prep</h2>
+          <form onSubmit={handleLogin} className="flex flex-col gap-4">
+            <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required className="p-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none" />
+            <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} required className="p-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none" />
+            <button type="submit" className="p-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition">Login</button>
           </form>
         </div>
       </div>
-    )
+    );
   }
 
-  // GitHub Heatmap Mock Data (Last 60 days)
-  const heatmapData = Array.from({ length: 60 }, () => Math.floor(Math.random() * 4))
-
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', backgroundColor: theme.bg, color: theme.text, fontFamily: 'sans-serif', transition: '0.3s' }}>
+    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans flex selection:bg-blue-200">
       
-      {/* SIDEBAR */}
-      <div style={{ width: '250px', backgroundColor: theme.sidebar, borderRight: `1px solid ${theme.border}`, padding: '20px', display: 'flex', flexDirection: 'column' }}>
-        <h2 style={{ fontSize: '20px', marginBottom: '40px' }}>ME Reviewer</h2>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', flexGrow: 1 }}>
-          <span style={{ cursor: 'pointer', fontWeight: 'bold', color: theme.primary }}>Dashboard</span>
-          <span style={{ cursor: 'pointer', color: theme.textMuted }}>Analytics</span>
-          <span style={{ cursor: 'pointer', color: theme.textMuted }}>Study History</span>
+      {/* SIDEBAR[cite: 12] */}
+      <div className="w-64 bg-white border-r border-slate-200 p-6 flex flex-col hidden md:flex">
+        <div className="flex items-center space-x-2 text-blue-700 font-bold text-xl mb-10 cursor-pointer" onClick={() => setView('dashboard')}>
+          <Activity className="w-6 h-6" /><span>ME Reviewer</span>
         </div>
         
-        <button onClick={() => setIsDarkMode(!isDarkMode)} style={{ padding: '10px', marginBottom: '10px', backgroundColor: theme.bg, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: '6px', cursor: 'pointer' }}>
-          {isDarkMode ? '☀️ Light Mode' : '🌙 Dark Mode'}
-        </button>
-        <button onClick={handleLogout} style={{ padding: '10px', backgroundColor: 'transparent', color: '#ef4444', border: `1px solid #ef4444`, borderRadius: '6px', cursor: 'pointer' }}>
-          Logout
+        <div className="flex flex-col gap-2 flex-grow">
+          {['Dashboard', 'Analytics', 'Study History'].map(tab => (
+            <button key={tab} onClick={() => { setActiveTab(tab); setView('dashboard'); }} className={`text-left p-3 rounded-lg font-medium transition ${activeTab === tab ? 'bg-blue-50 text-blue-700' : 'text-slate-500 hover:bg-slate-50'}`}>
+              {tab}
+            </button>
+          ))}
+        </div>
+        
+        <button onClick={handleLogout} className="flex items-center space-x-2 text-slate-500 hover:text-red-500 transition p-2">
+          <LogOut className="w-5 h-5" /><span>Logout</span>
         </button>
       </div>
 
-      {/* MAIN CONTENT AREA */}
-      <div style={{ flex: 1, padding: '40px', overflowY: 'auto' }}>
+      {/* MAIN CONTENT */}
+      <div className="flex-1 p-6 md:p-10 overflow-y-auto">
+        {view === 'dashboard' && activeTab === 'Dashboard' && (
+          <Dashboard stats={stats} sets={availableSets} types={availableTypes} onStartQuiz={startQuiz} />
+        )}
         
-        {screen === 'dashboard' && (
-          <div style={{ maxWidth: '900px', margin: '0 auto' }}>
-            <h1 style={{ marginBottom: '5px' }}>Welcome back.</h1>
-            <p style={{ color: theme.textMuted, marginBottom: '30px' }}>Your licensure exam progress at a glance.</p>
-
-            {/* TOP STAT CARDS */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px', marginBottom: '40px' }}>
-              <div style={{ padding: '20px', backgroundColor: theme.cardBg1, color: 'white', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
-                <h3 style={{ fontSize: '14px', opacity: 0.9 }}>Questions Answered</h3>
-                <h2 style={{ fontSize: '32px', margin: '10px 0 0 0' }}>1,284</h2>
-              </div>
-              <div style={{ padding: '20px', backgroundColor: theme.cardBg2, color: 'white', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
-                <h3 style={{ fontSize: '14px', opacity: 0.9 }}>Overall Accuracy</h3>
-                <h2 style={{ fontSize: '32px', margin: '10px 0 0 0' }}>76%</h2>
-              </div>
-              <div style={{ padding: '20px', backgroundColor: theme.cardBg3, color: 'white', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
-                <h3 style={{ fontSize: '14px', opacity: 0.9 }}>Study Streak</h3>
-                <h2 style={{ fontSize: '32px', margin: '10px 0 0 0' }}>12 Days</h2>
-              </div>
-            </div>
-
-            {/* ACTION BUTTONS */}
-            <div style={{ display: 'flex', gap: '15px', marginBottom: '40px' }}>
-              <button onClick={() => startQuiz(10)} style={{ flex: 1, padding: '15px', backgroundColor: theme.card, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: '8px', cursor: 'pointer', fontSize: '16px', fontWeight: 'bold' }}>Quick Quiz (10)</button>
-              <button onClick={() => startQuiz(65)} style={{ flex: 1, padding: '15px', backgroundColor: theme.card, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: '8px', cursor: 'pointer', fontSize: '16px', fontWeight: 'bold' }}>Refresher (65)</button>
-              <button onClick={() => startQuiz(100)} style={{ flex: 1, padding: '15px', backgroundColor: theme.primary, color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '16px', fontWeight: 'bold' }}>Mock Exam (100)</button>
-            </div>
-
-            {/* GITHUB CALENDAR HEATMAP */}
-            <div style={{ padding: '20px', backgroundColor: theme.card, borderRadius: '12px', border: `1px solid ${theme.border}` }}>
-              <h3 style={{ marginBottom: '15px', fontSize: '16px' }}>Activity Tracker</h3>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                {heatmapData.map((level, i) => {
-                  const colors = isDarkMode 
-                    ? ['#334155', '#0e4429', '#006d32', '#26a641'] 
-                    : ['#ebedf0', '#9be9a8', '#40c463', '#30a14e']
-                  return (
-                    <div key={i} style={{ width: '12px', height: '12px', backgroundColor: colors[level], borderRadius: '2px' }} title={`Activity level ${level}`} />
-                  )
-                })}
-              </div>
-            </div>
+        {view === 'dashboard' && activeTab !== 'Dashboard' && (
+          <div className="flex flex-col items-center justify-center h-full text-slate-400">
+            <Calendar className="w-16 h-16 mb-4 opacity-50" />
+            <h2 className="text-xl font-bold text-slate-600">{activeTab} coming soon...</h2>
           </div>
         )}
 
-        {/* QUIZ INTERFACE */}
-        {screen === 'quiz' && questions.length > 0 && (
-          <div style={{ maxWidth: '600px', margin: '0 auto', backgroundColor: theme.card, padding: '30px', borderRadius: '12px', border: `1px solid ${theme.border}` }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', color: theme.textMuted, fontSize: '14px', marginBottom: '20px' }}>
-              <span>Question {currentIndex + 1} of {questions.length}</span>
-              <span>Subject: {questions[currentIndex].subject || 'Mixed'}</span>
-            </div>
-            
-            <h2 style={{ fontSize: '20px', lineHeight: '1.5', marginBottom: '30px' }}>
-              {questions[currentIndex].question_text}
-            </h2>
-            
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {questions[currentIndex].shuffled_options.map((opt, i) => (
-                <button key={i} onClick={() => handleAnswer(opt)} style={{ padding: '15px', textAlign: 'left', backgroundColor: theme.bg, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: '8px', cursor: 'pointer', fontSize: '16px' }}>
-                  {opt}
-                </button>
-              ))}
-            </div>
-          </div>
+        {view === 'quiz' && questions.length > 0 && (
+          <QuizActive questions={questions} onComplete={handleQuizComplete} />
         )}
 
-        {/* RESULTS INTERFACE */}
-        {screen === 'result' && (
-          <div style={{ maxWidth: '600px', margin: '50px auto', textAlign: 'center', backgroundColor: theme.card, padding: '40px', borderRadius: '12px', border: `1px solid ${theme.border}` }}>
-            <h1 style={{ fontSize: '48px', margin: '20px 0', color: theme.primary }}>{score} / {questions.length}</h1>
-            <p style={{ fontSize: '18px', color: theme.textMuted, marginBottom: '30px' }}>Quiz Completed!</p>
-            <button onClick={() => setScreen('dashboard')} style={{ padding: '15px 30px', backgroundColor: theme.primary, color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '16px', fontWeight: 'bold' }}>
-              Return to Dashboard
-            </button>
-          </div>
+        {view === 'results' && (
+          <QuizResults results={quizResults} score={quizScore} onBack={() => setView('dashboard')} />
         )}
       </div>
     </div>
-  )
+  );
+}
+
+// ==========================================
+// DASHBOARD COMPONENT
+// ==========================================
+function Dashboard({ stats, sets, types, onStartQuiz }) {
+  const [selectedSet, setSelectedSet] = useState('All');
+  const [selectedType, setSelectedType] = useState('All');
+
+  if (!stats) return null;
+
+  const accuracy = stats.totalQuestions > 0 ? Math.round((stats.correctAnswers / stats.totalQuestions) * 100) : 0;
+  const avgTime = stats.totalQuestions > 0 ? Math.round(stats.totalTimeSpent / stats.totalQuestions) : 0;
+
+  // Accurate Heatmap Generation (Last 60 days)
+  const heatmapData = useMemo(() => {
+    const data = [];
+    const today = new Date();
+    for (let i = 59; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0];
+      const count = stats.history[dateStr] || 0;
+      
+      let level = 0;
+      if (count > 0 && count <= 10) level = 1;
+      else if (count > 10 && count <= 30) level = 2;
+      else if (count > 30 && count <= 60) level = 3;
+      else if (count > 60) level = 4;
+      
+      data.push({ date: dateStr, level });
+    }
+    return data;
+  }, [stats.history]);
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-500">
+      <h1 className="text-3xl font-bold text-slate-800">Welcome back.</h1>
+
+      {/* Stats Row[cite: 12] */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <CheckCircle className="text-emerald-500 w-8 h-8 mb-4" />
+          <div className="text-3xl font-black text-slate-800 mb-1">{accuracy}%</div>
+          <div className="font-semibold text-sm text-slate-600">Overall Accuracy</div>
+        </div>
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <Clock className="text-amber-500 w-8 h-8 mb-4" />
+          <div className="text-3xl font-black text-slate-800 mb-1">{formatTime(avgTime)}</div>
+          <div className="font-semibold text-sm text-slate-600">Avg Time per Item</div>
+        </div>
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <BookOpen className="text-blue-500 w-8 h-8 mb-4" />
+          <div className="text-3xl font-black text-slate-800 mb-1">{stats.totalQuestions}</div>
+          <div className="font-semibold text-sm text-slate-600">Items Answered</div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        {/* Quiz Setup & Filters[cite: 13] */}
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <h3 className="text-lg font-bold text-slate-800 mb-4">Start a Review Session</h3>
+          <div className="space-y-4 mb-6">
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1">Select Set</label>
+              <select value={selectedSet} onChange={e => setSelectedSet(e.target.value)} className="w-full p-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none">
+                <option value="All">All Sets</option>
+                {sets.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1">Select Question Type</label>
+              <select value={selectedType} onChange={e => setSelectedType(e.target.value)} className="w-full p-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none">
+                <option value="All">All Types (Theory + Problem Solving)</option>
+                {types.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => onStartQuiz(selectedSet, selectedType, 20)} className="flex-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold py-3 rounded-xl transition">Short (20)</button>
+            <button onClick={() => onStartQuiz(selectedSet, selectedType, 100)} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-sm transition">Exam (100)</button>
+          </div>
+        </div>
+
+        {/* Real Activity Heatmap[cite: 12] */}
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <h3 className="text-lg font-bold text-slate-800 mb-4">Activity Tracker</h3>
+          <div className="flex flex-wrap gap-1.5 mt-4">
+            {heatmapData.map((day, i) => {
+              const colors = ['#ebedf0', '#9be9a8', '#40c463', '#30a14e', '#216e39'];
+              return <div key={i} title={`${day.date}: Level ${day.level}`} style={{ width: '14px', height: '14px', backgroundColor: colors[day.level], borderRadius: '3px' }} />
+            })}
+          </div>
+          <p className="text-xs text-slate-400 mt-4 text-right">Last 60 days</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// ACTIVE QUIZ COMPONENT
+// ==========================================
+function QuizActive({ questions, onComplete }) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(TIME_PER_QUESTION_SEC); //[cite: 12]
+  const [results, setResults] = useState([]);
+  const [score, setScore] = useState(0);
+  const [hasAnswered, setHasAnswered] = useState(false); //[cite: 13]
+  const [selectedOpt, setSelectedOpt] = useState(null);
+  
+  const currentQ = questions[currentIndex];
+  
+  // Timer Logic[cite: 12]
+  useEffect(() => {
+    setTimeLeft(TIME_PER_QUESTION_SEC);
+    setHasAnswered(false);
+    setSelectedOpt(null);
+  }, [currentIndex]);
+
+  useEffect(() => {
+    if (hasAnswered) return; // Stop timer when answered
+    if (timeLeft <= 0) { handleAnswer(null, true); return; } // Timeout[cite: 12]
+    const timerId = setInterval(() => setTimeLeft(prev => prev - 1), 1000);
+    return () => clearInterval(timerId);
+  }, [timeLeft, currentIndex, hasAnswered]);
+
+  const handleAnswer = (choiceText, isTimeout = false) => {
+    if (hasAnswered) return;
+    setHasAnswered(true);
+    setSelectedOpt(choiceText);
+
+    const timeSpent = TIME_PER_QUESTION_SEC - timeLeft; //[cite: 12]
+    const isCorrect = !isTimeout && choiceText === currentQ.correct_text;
+    
+    if (isCorrect) setScore(score + 1);
+
+    setResults([...results, {
+      question: currentQ,
+      userAnswer: choiceText,
+      isCorrect,
+      isTimeout,
+      timeSpent,
+      skipped: choiceText === null && !isTimeout
+    }]);
+  };
+
+  const nextQuestion = () => {
+    if (currentIndex + 1 < questions.length) setCurrentIndex(currentIndex + 1);
+    else onComplete(results, score);
+  };
+
+  const progressPercent = (currentIndex / questions.length) * 100; //[cite: 13]
+  const timerColor = timeLeft > 60 ? 'text-emerald-600' : timeLeft > 30 ? 'text-amber-500' : 'text-red-500'; //[cite: 12]
+
+  return (
+    <div className="max-w-3xl mx-auto flex flex-col h-full animate-in slide-in-from-right-8 duration-300">
+      
+      {/* Top Progress Bar[cite: 13] */}
+      <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden mb-6">
+        <div className="h-full bg-indigo-500 transition-all duration-300" style={{ width: `${progressPercent}%` }}></div>
+      </div>
+
+      <div className="flex items-center justify-between bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6">
+        <div className="flex items-center space-x-3">
+          <span className="px-3 py-1 bg-slate-100 text-slate-600 rounded-md font-bold text-sm">Item {currentIndex + 1} / {questions.length}</span>
+          <span className="font-semibold text-blue-700 bg-blue-50 px-3 py-1 rounded-md text-sm">{currentQ.subject || currentQ.topic}</span>
+        </div>
+        <div className={`flex items-center space-x-2 font-mono text-xl font-bold ${timerColor}`}>
+          <Clock className="w-5 h-5" /><span>{formatTime(timeLeft)}</span>
+        </div>
+      </div>
+
+      <h2 className="text-xl md:text-2xl font-semibold text-slate-800 mb-8 leading-relaxed whitespace-pre-line">
+        {currentQ.question_text}
+      </h2>
+
+      {/* Immediate Evaluation Options[cite: 13] */}
+      <div className="space-y-3 mb-8">
+        {currentQ.choices.map((choice, idx) => {
+          const isSelected = selectedOpt === choice;
+          const isActuallyCorrect = choice === currentQ.correct_text;
+          
+          let btnStyle = "border-slate-200 bg-white text-slate-700 hover:border-blue-300";
+          if (hasAnswered) {
+            if (isActuallyCorrect) btnStyle = "border-green-500 bg-green-50 text-green-800 font-bold";
+            else if (isSelected) btnStyle = "border-red-500 bg-red-50 text-red-800";
+            else btnStyle = "border-slate-100 opacity-50";
+          }
+
+          return (
+            <button key={idx} disabled={hasAnswered} onClick={() => handleAnswer(choice)}
+              className={`w-full text-left p-4 rounded-xl border-2 transition-all flex items-start ${btnStyle}`}>
+              <div className="font-bold mr-4 shrink-0">{String.fromCharCode(65 + idx)}.</div>
+              <div className="pt-0.5">{choice}</div>
+              {hasAnswered && isActuallyCorrect && <CheckCircle className="w-5 h-5 text-green-600 ml-auto shrink-0" />}
+              {hasAnswered && isSelected && !isActuallyCorrect && <XCircle className="w-5 h-5 text-red-500 ml-auto shrink-0" />}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-auto flex justify-end">
+        {!hasAnswered ? (
+          <button onClick={() => handleAnswer(null)} className="flex items-center space-x-2 text-slate-500 hover:text-slate-800 font-medium px-4 py-2">
+            <span>Skip Question</span><SkipForward className="w-4 h-4" />
+          </button>
+        ) : (
+          <button onClick={nextQuestion} className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-8 rounded-xl transition">
+            {currentIndex + 1 === questions.length ? "Finish & Review" : "Next Question"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// RESULTS COMPONENT[cite: 13]
+// ==========================================
+function QuizResults({ results, score, onBack }) {
+  const percentage = Math.round((score / results.length) * 100);
+  const missed = results.filter(r => !r.isCorrect);
+  const correct = results.filter(r => r.isCorrect);
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-8 animate-in zoom-in-95 duration-500">
+      
+      <div className="text-center border-b border-slate-200 pb-8">
+        <h2 className="text-3xl font-black text-slate-900 mb-6">Quiz Completed!</h2>
+        <div className="flex justify-center gap-4">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm w-40">
+            <div className="text-sm text-slate-500 font-bold uppercase">Final Score</div>
+            <div className="text-4xl font-black text-indigo-600 mt-2">{score}/{results.length}</div>
+          </div>
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm w-40">
+            <div className="text-sm text-slate-500 font-bold uppercase">Accuracy</div>
+            <div className="text-4xl font-black text-slate-700 mt-2">{percentage}%</div>
+          </div>
+        </div>
+      </div>
+
+      {missed.length > 0 && (
+        <div className="space-y-4">
+          <h3 className="text-xl font-bold text-red-600 flex items-center gap-2"><AlertCircle className="w-6 h-6"/> Needs Review (Missed)</h3>
+          {missed.map((res, i) => (
+            <div key={i} className="p-5 rounded-xl bg-white border-l-4 border-l-red-500 border border-slate-200 shadow-sm">
+              <div className="text-slate-800 font-medium whitespace-pre-line mb-3">{res.question.question_text}</div>
+              <div className="flex flex-col gap-2 text-sm">
+                <div className="flex items-center gap-2 text-red-600"><XCircle className="w-4 h-4"/> <span className="line-through opacity-80">You answered: {res.userAnswer || "Skipped/Timeout"}</span></div>
+                <div className="flex items-center gap-2 text-green-700 font-bold"><CheckCircle className="w-4 h-4"/> <span>Correct: {res.question.correct_text}</span></div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {correct.length > 0 && (
+        <div className="space-y-4 mt-8">
+          <h3 className="text-xl font-bold text-green-600 flex items-center gap-2"><CheckCircle className="w-6 h-6"/> Mastered (Correct)</h3>
+          {correct.map((res, i) => (
+            <div key={i} className="p-5 rounded-xl bg-white border-l-4 border-l-green-500 border border-slate-200 shadow-sm">
+              <div className="text-slate-800 font-medium whitespace-pre-line mb-3">{res.question.question_text}</div>
+              <div className="flex items-center gap-2 text-green-700 text-sm font-bold"><CheckCircle className="w-4 h-4"/> <span>You answered: {res.userAnswer}</span></div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="pt-6 text-center">
+        <button onClick={onBack} className="bg-slate-800 hover:bg-slate-900 text-white font-bold py-4 px-10 rounded-xl shadow-md transition">Return to Dashboard</button>
+      </div>
+    </div>
+  );
 }
