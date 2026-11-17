@@ -223,13 +223,9 @@ function Dashboard({ stats, sets, types, onStartQuiz }) {
   const [selectedSet, setSelectedSet] = useState('All');
   const [selectedType, setSelectedType] = useState('All');
 
-  if (!stats) return null;
-
-  const accuracy = stats.totalQuestions > 0 ? Math.round((stats.correctAnswers / stats.totalQuestions) * 100) : 0;
-  const avgTime = stats.totalQuestions > 0 ? Math.round(stats.totalTimeSpent / stats.totalQuestions) : 0;
-
-  // Accurate Heatmap Generation (Last 60 days)
+  // CRITICAL FIX: Hook is now placed BEFORE the early return
   const heatmapData = useMemo(() => {
+    if (!stats) return []; // Safety check
     const data = [];
     const today = new Date();
     for (let i = 59; i >= 0; i--) {
@@ -247,13 +243,19 @@ function Dashboard({ stats, sets, types, onStartQuiz }) {
       data.push({ date: dateStr, level });
     }
     return data;
-  }, [stats.history]);
+  }, [stats]);
+
+  // Early return is now safely AFTER all hooks
+  if (!stats) return null;
+
+  const accuracy = stats.totalQuestions > 0 ? Math.round((stats.correctAnswers / stats.totalQuestions) * 100) : 0;
+  const avgTime = stats.totalQuestions > 0 ? Math.round(stats.totalTimeSpent / stats.totalQuestions) : 0;
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-500">
       <h1 className="text-3xl font-bold text-slate-800">Welcome back.</h1>
 
-      {/* Stats Row[cite: 12] */}
+      {/* Stats Row */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
           <CheckCircle className="text-emerald-500 w-8 h-8 mb-4" />
@@ -273,7 +275,7 @@ function Dashboard({ stats, sets, types, onStartQuiz }) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        {/* Quiz Setup & Filters[cite: 13] */}
+        {/* Quiz Setup & Filters */}
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
           <h3 className="text-lg font-bold text-slate-800 mb-4">Start a Review Session</h3>
           <div className="space-y-4 mb-6">
@@ -298,7 +300,7 @@ function Dashboard({ stats, sets, types, onStartQuiz }) {
           </div>
         </div>
 
-        {/* Real Activity Heatmap[cite: 12] */}
+        {/* Real Activity Heatmap */}
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
           <h3 className="text-lg font-bold text-slate-800 mb-4">Activity Tracker</h3>
           <div className="flex flex-wrap gap-1.5 mt-4">
