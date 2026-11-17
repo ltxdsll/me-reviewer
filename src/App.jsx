@@ -29,7 +29,7 @@ export default function App() {
   const [view, setView] = useState('dashboard');
   const [activeTab, setActiveTab] = useState('Dashboard'); 
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // Unified for Desktop & Mobile
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
   // Quiz State
   const [stats, setStats] = useState(null);
@@ -300,13 +300,13 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans flex transition-colors duration-300">
       
-      {/* UNIFIED COLLAPSIBLE SIDEBAR OVERLAY (Desktop & Mobile) */}
+      {/* UNIFIED COLLAPSIBLE SIDEBAR OVERLAY */}
       {isSidebarOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 flex backdrop-blur-sm transition-all" onClick={() => setIsSidebarOpen(false)}>
           <div className="w-72 h-full bg-white dark:bg-slate-900 p-6 flex flex-col shadow-2xl animate-in slide-in-from-left-8 duration-300" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-10">
               <div className="flex items-center space-x-2 text-blue-700 dark:text-blue-500 font-black text-2xl tracking-tight">
-                <Activity className="w-8 h-8" /><span>MELE Reviewer</span>
+                <span>MELE Reviewer</span>
               </div>
               <button onClick={() => setIsSidebarOpen(false)} className="text-slate-500 dark:text-slate-400 p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition"><X className="w-6 h-6"/></button>
             </div>
@@ -387,7 +387,6 @@ function Dashboard({ stats, sets, onStartQuiz, surname }) {
   const accuracy = stats.totalQuestions > 0 ? Math.round((stats.correctAnswers / stats.totalQuestions) * 100) : 0;
   const avgTime = stats.totalQuestions > 0 ? Math.round(stats.totalTimeSpent / stats.totalQuestions) : 0;
 
-  // Renders for BOTH Mobile & Desktop
   const renderSubjectCard = (subjectName) => {
     const s = stats.subjects[subjectName];
     if (!s || s.total === 0) return null;
@@ -399,7 +398,7 @@ function Dashboard({ stats, sets, onStartQuiz, surname }) {
     const elemAcc = elemTotal > 0 ? Math.round((s.types['Elements'].correct / elemTotal) * 100) : 0;
 
     return (
-      <div key={subjectName} className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm mt-4">
+      <div key={subjectName} className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
         <h4 className="font-bold text-slate-800 dark:text-white mb-3 flex items-center justify-between">
           {subjectName} <span className="text-xs font-normal text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">{s.total} items</span>
         </h4>
@@ -422,18 +421,18 @@ function Dashboard({ stats, sets, onStartQuiz, surname }) {
   };
 
   return (
-    <div className="flex flex-col md:grid md:grid-cols-2 gap-8 max-w-5xl mx-auto animate-in fade-in duration-500 w-full">
+    <div className="flex flex-col md:grid md:grid-cols-12 gap-6 md:gap-8 max-w-6xl mx-auto animate-in fade-in duration-500 w-full">
       
       {/* 1. GREETING */}
-      <div className="order-1 md:col-span-2 pt-2">
+      <div className="md:col-span-12 pt-2">
         <h1 className="font-bold">
           <div className="text-xl md:text-2xl text-slate-500 dark:text-slate-400 font-medium">Welcome back,</div>
           <div className="text-3xl md:text-5xl mt-1 text-slate-800 dark:text-white font-black tracking-tight">Engr. {surname}!</div>
         </h1>
       </div>
 
-      {/* 2. QUIZ SETUP & SUBJECT PERFORMANCE */}
-      <div className="order-2 md:order-4 md:col-span-1 flex flex-col">
+      {/* 2. LEFT COLUMN (Quiz Setup Only) */}
+      <div className="md:col-span-5 lg:col-span-4 flex flex-col h-max">
         <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm transition-colors">
           <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4">Start a Review Session</h3>
           <div className="space-y-4 mb-6">
@@ -463,7 +462,7 @@ function Dashboard({ stats, sets, onStartQuiz, surname }) {
             </div>
           </div>
           <div className="flex flex-col gap-3">
-            <button onClick={() => onStartQuiz(selectedSubject, selectedSet, selectedType, 50)} className="w-full bg-slate-900 dark:bg-slate-700 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-slate-800 dark:hover:bg-slate-600 transition shadow-sm">
+            <button onClick={() => onStartQuiz(selectedSubject, selectedSet, selectedType, 9999)} className="w-full bg-slate-900 dark:bg-slate-700 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-slate-800 dark:hover:bg-slate-600 transition shadow-sm">
               <Play className="w-5 h-5 fill-current" /> Start
             </button>
             <button onClick={() => onStartQuiz(selectedSubject, selectedSet, selectedType, 10)} className="w-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold py-3 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition border border-slate-200 dark:border-slate-700">
@@ -474,44 +473,48 @@ function Dashboard({ stats, sets, onStartQuiz, surname }) {
             </button>
           </div>
         </div>
-
-        {/* Parity: Detailed Subject Cards visible on Desktop & Mobile */}
-        {['PIPE', 'MDSP', 'MESL'].map(renderSubjectCard)}
       </div>
 
-      {/* 3. STATS CARDS */}
-      <div className="order-3 md:order-2 md:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-6 h-max">
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-4 transition-colors">
-          <div className="p-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl shrink-0">
-            <CheckCircle className="text-emerald-500 w-8 h-8" />
+      {/* 3. RIGHT COLUMN (All Stats & Heatmap) */}
+      <div className="md:col-span-7 lg:col-span-8 flex flex-col gap-6 h-max">
+        
+        {/* Row 1: Overall Stats */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-4 transition-colors">
+            <div className="p-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl shrink-0">
+              <CheckCircle className="text-emerald-500 w-8 h-8" />
+            </div>
+            <div>
+              <div className="text-2xl font-black text-slate-800 dark:text-white leading-tight">{accuracy}%</div>
+              <div className="font-semibold text-sm text-slate-500 dark:text-slate-400">Overall Accuracy</div>
+            </div>
           </div>
-          <div>
-            <div className="text-2xl font-black text-slate-800 dark:text-white leading-tight">{accuracy}%</div>
-            <div className="font-semibold text-sm text-slate-500 dark:text-slate-400">Overall Accuracy</div>
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-4 transition-colors">
+            <div className="p-4 bg-amber-50 dark:bg-amber-900/20 rounded-xl shrink-0">
+              <Clock className="text-amber-500 w-8 h-8" />
+            </div>
+            <div>
+              <div className="text-2xl font-black text-slate-800 dark:text-white leading-tight">{formatTime(avgTime)}</div>
+              <div className="font-semibold text-sm text-slate-500 dark:text-slate-400">Avg Time</div>
+            </div>
+          </div>
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-4 transition-colors">
+            <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl shrink-0">
+              <BookOpen className="text-blue-500 w-8 h-8" />
+            </div>
+            <div>
+              <div className="text-2xl font-black text-slate-800 dark:text-white leading-tight">{stats.totalQuestions}</div>
+              <div className="font-semibold text-sm text-slate-500 dark:text-slate-400">Items Done</div>
+            </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-4 transition-colors">
-          <div className="p-4 bg-amber-50 dark:bg-amber-900/20 rounded-xl shrink-0">
-            <Clock className="text-amber-500 w-8 h-8" />
-          </div>
-          <div>
-            <div className="text-2xl font-black text-slate-800 dark:text-white leading-tight">{formatTime(avgTime)}</div>
-            <div className="font-semibold text-sm text-slate-500 dark:text-slate-400">Avg Time per Item</div>
-          </div>
-        </div>
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-4 transition-colors">
-          <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl shrink-0">
-            <BookOpen className="text-blue-500 w-8 h-8" />
-          </div>
-          <div>
-            <div className="text-2xl font-black text-slate-800 dark:text-white leading-tight">{stats.totalQuestions}</div>
-            <div className="font-semibold text-sm text-slate-500 dark:text-slate-400">Items Answered</div>
-          </div>
-        </div>
-      </div>
 
-      {/* 4. HEATMAP */}
-      <div className="order-4 md:order-5 md:col-span-1 h-max">
+        {/* Row 2: Subject Performance */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {['PIPE', 'MDSP', 'MESL'].map(renderSubjectCard)}
+        </div>
+
+        {/* Row 3: Heatmap */}
         <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm transition-colors">
           <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4">Activity Tracker</h3>
           <div className="flex flex-wrap gap-1.5 mt-4">
@@ -537,7 +540,6 @@ function Analytics({ stats }) {
 
   if (!stats) return null;
 
-  // Aggregate stats dynamically based on Overall vs Individual Subject
   let s = { correct: 0, total: 0, types: { 'Problem Solving': { correct: 0, total: 0 }, 'Elements': { correct: 0, total: 0 } }, topics: {} };
 
   if (selectedSubj === 'Overall') {
@@ -680,7 +682,6 @@ function StudyHistory({ userId }) {
                 <ChevronRight className={`w-6 h-6 text-slate-400 mt-3 md:mt-0 transition-transform ${expandedId === session.id ? 'rotate-90' : ''}`} />
               </div>
 
-              {/* Fixed Dimension Expanded Dropdown with Segregated Data */}
               {expandedId === session.id && session.details && (
                 <div className="p-5 md:px-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 space-y-8 max-h-[450px] overflow-y-auto">
                   
@@ -815,7 +816,7 @@ function QuizActive({ questions: initialQuestions, onComplete }) {
         </div>
       </div>
       
-      <div className="sticky bottom-0 -mx-6 md:-mx-10 px-6 md:px-10 py-4 bg-slate-50 dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 mt-auto z-10 flex justify-end shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)] dark:shadow-none">
+      <div className="sticky bottom-0 -mx-6 md:-mx-10 -mb-6 md:-mb-10 px-6 md:px-10 py-4 bg-slate-50 dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 mt-auto z-10 flex justify-end shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)] dark:shadow-none">
         {!hasAnswered ? (
           <button onClick={handleSkip} className="flex items-center space-x-2 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white font-bold px-4 py-2">
             <span>Skip Question</span><SkipForward className="w-4 h-4" />

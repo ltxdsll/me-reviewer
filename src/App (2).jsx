@@ -27,9 +27,9 @@ export default function App() {
   
   // App Navigation & Theme
   const [view, setView] = useState('dashboard');
-  const [activeTab, setActiveTab] = useState('Dashboard'); // Dashboard, Analytics, Study History, Settings
+  const [activeTab, setActiveTab] = useState('Dashboard'); 
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // Unified for Desktop & Mobile
   
   // Quiz State
   const [stats, setStats] = useState(null);
@@ -90,7 +90,6 @@ export default function App() {
       const { data, error } = await supabase.from('user_stats').select('stats_data').eq('user_id', userId).single();
       
       if (data && data.stats_data) {
-        // Ensure nested structures exist for new analytics tracking
         const s = data.stats_data;
         if (!s.subjects) s.subjects = {};
         ['PIPE', 'MDSP', 'MESL'].forEach(subj => {
@@ -140,9 +139,8 @@ export default function App() {
       data: { first_name: firstName, last_name: lastName }
     });
     
-    if (error) {
-      alert(error.message);
-    } else {
+    if (error) alert(error.message);
+    else {
       setNeedsProfile(false);
       await loadUserStats(session.user.id);
       fetchFilters();
@@ -186,7 +184,6 @@ export default function App() {
     const today = new Date().toISOString().split('T')[0];
     newStats.history[today] = (newStats.history[today] || 0) + finalResults.length;
 
-    // Advanced Tracking for Analytics
     finalResults.forEach(res => {
       const subj = res.question.subject || 'Mixed';
       const qType = res.question.question_type || 'Uncategorized';
@@ -194,16 +191,13 @@ export default function App() {
 
       if (!newStats.subjects[subj]) newStats.subjects[subj] = { correct: 0, total: 0, types: {}, topics: {} };
       
-      // Overall Subject
       newStats.subjects[subj].total += 1;
       if (res.isCorrect) newStats.subjects[subj].correct += 1;
 
-      // Type Tracking (Elements vs Problem Solving)
       if (!newStats.subjects[subj].types[qType]) newStats.subjects[subj].types[qType] = { correct: 0, total: 0 };
       newStats.subjects[subj].types[qType].total += 1;
       if (res.isCorrect) newStats.subjects[subj].types[qType].correct += 1;
 
-      // Topic Tracking
       if (!newStats.subjects[subj].topics[topic]) newStats.subjects[subj].topics[topic] = { correct: 0, total: 0 };
       newStats.subjects[subj].topics[topic].total += 1;
       if (res.isCorrect) newStats.subjects[subj].topics[topic].correct += 1;
@@ -211,13 +205,11 @@ export default function App() {
 
     setStats(newStats);
     
-    // Push updated aggregate stats
     await supabase.from('user_stats').upsert({
       user_id: session.user.id,
       stats_data: newStats
     });
 
-    // Save individual session history
     const historyDetails = finalResults.map(r => ({
       q: r.question.question_text,
       userAnswer: r.userAnswer,
@@ -245,7 +237,7 @@ export default function App() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 font-sans p-4">
         <div className="p-10 bg-white rounded-2xl shadow-sm border border-slate-200 w-full max-w-md relative">
-          <h2 className="text-2xl font-bold mb-6 text-center text-slate-800">ME Board Prep</h2>
+          <h2 className="text-3xl font-black mb-6 text-center text-slate-800 tracking-tight">MELE Reviewer</h2>
           
           {!isForgotPassword ? (
             <>
@@ -308,53 +300,36 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans flex transition-colors duration-300">
       
-      {/* MOBILE NAVIGATION DRAWER */}
-      {isMobileMenuOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 md:hidden flex" onClick={() => setIsMobileMenuOpen(false)}>
-          <div className="w-64 h-full bg-white dark:bg-slate-900 p-6 flex flex-col shadow-xl" onClick={e => e.stopPropagation()}>
+      {/* UNIFIED COLLAPSIBLE SIDEBAR OVERLAY (Desktop & Mobile) */}
+      {isSidebarOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 flex backdrop-blur-sm transition-all" onClick={() => setIsSidebarOpen(false)}>
+          <div className="w-72 h-full bg-white dark:bg-slate-900 p-6 flex flex-col shadow-2xl animate-in slide-in-from-left-8 duration-300" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-10">
-              <div className="flex items-center space-x-2 text-blue-700 dark:text-blue-500 font-bold text-xl">
-                <Activity className="w-6 h-6" /><span>ME Reviewer</span>
+              <div className="flex items-center space-x-2 text-blue-700 dark:text-blue-500 font-black text-2xl tracking-tight">
+                <Activity className="w-8 h-8" /><span>MELE Reviewer</span>
               </div>
-              <button onClick={() => setIsMobileMenuOpen(false)} className="text-slate-500 dark:text-slate-400 p-1"><X className="w-6 h-6"/></button>
+              <button onClick={() => setIsSidebarOpen(false)} className="text-slate-500 dark:text-slate-400 p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition"><X className="w-6 h-6"/></button>
             </div>
             <div className="flex flex-col gap-2 flex-grow">
               {['Dashboard', 'Analytics', 'Study History', 'Settings'].map(tab => (
-                <button key={tab} onClick={() => { setActiveTab(tab); setView('dashboard'); setIsMobileMenuOpen(false); }} className={`text-left p-3 rounded-lg font-medium transition ${activeTab === tab ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+                <button key={tab} onClick={() => { setActiveTab(tab); setView('dashboard'); setIsSidebarOpen(false); }} className={`text-left p-3.5 rounded-xl font-bold transition-all ${activeTab === tab ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 scale-[1.02]' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
                   {tab}
                 </button>
               ))}
             </div>
-            <button onClick={() => supabase.auth.signOut()} className="flex items-center space-x-2 text-slate-500 dark:text-slate-400 hover:text-red-500 transition p-2">
+            <button onClick={() => supabase.auth.signOut()} className="flex items-center space-x-3 text-slate-500 dark:text-slate-400 hover:text-red-500 font-bold transition p-3 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl">
               <LogOut className="w-5 h-5" /><span>Logout</span>
             </button>
           </div>
         </div>
       )}
 
-      {/* DESKTOP SIDEBAR */}
-      <div className="w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 p-6 flex flex-col hidden md:flex transition-colors">
-        <div className="flex items-center space-x-2 text-blue-700 dark:text-blue-500 font-bold text-xl mb-10 cursor-pointer" onClick={() => setView('dashboard')}>
-          <Activity className="w-6 h-6" /><span>ME Reviewer</span>
-        </div>
-        <div className="flex flex-col gap-2 flex-grow">
-          {['Dashboard', 'Analytics', 'Study History', 'Settings'].map(tab => (
-            <button key={tab} onClick={() => { setActiveTab(tab); setView('dashboard'); }} className={`text-left p-3 rounded-lg font-medium transition ${activeTab === tab ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
-              {tab}
-            </button>
-          ))}
-        </div>
-        <button onClick={() => supabase.auth.signOut()} className="flex items-center space-x-2 text-slate-500 dark:text-slate-400 hover:text-red-500 transition p-2">
-          <LogOut className="w-5 h-5" /><span>Logout</span>
-        </button>
-      </div>
-
       {/* MAIN CONTENT AREA */}
       <div className="flex-1 flex flex-col h-screen overflow-hidden relative">
         
-        {/* HEADER BAR (Mobile Menu & Dark Mode) */}
+        {/* MINIMALIST HEADER BAR */}
         <div className="h-16 flex items-center justify-between px-6 md:px-10 shrink-0">
-          <button onClick={() => setIsMobileMenuOpen(true)} className="md:hidden p-2 -ml-2 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition">
+          <button onClick={() => setIsSidebarOpen(true)} className="p-2 -ml-2 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition flex items-center gap-2 font-bold">
             <Menu className="w-7 h-7" />
           </button>
           
@@ -412,8 +387,8 @@ function Dashboard({ stats, sets, onStartQuiz, surname }) {
   const accuracy = stats.totalQuestions > 0 ? Math.round((stats.correctAnswers / stats.totalQuestions) * 100) : 0;
   const avgTime = stats.totalQuestions > 0 ? Math.round(stats.totalTimeSpent / stats.totalQuestions) : 0;
 
-  // Helper to render Mobile Subject Perf Cards
-  const renderMobileSubjectCard = (subjectName) => {
+  // Renders for BOTH Mobile & Desktop
+  const renderSubjectCard = (subjectName) => {
     const s = stats.subjects[subjectName];
     if (!s || s.total === 0) return null;
     
@@ -424,22 +399,22 @@ function Dashboard({ stats, sets, onStartQuiz, surname }) {
     const elemAcc = elemTotal > 0 ? Math.round((s.types['Elements'].correct / elemTotal) * 100) : 0;
 
     return (
-      <div key={subjectName} className="md:hidden bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm mt-4">
+      <div key={subjectName} className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm mt-4">
         <h4 className="font-bold text-slate-800 dark:text-white mb-3 flex items-center justify-between">
           {subjectName} <span className="text-xs font-normal text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">{s.total} items</span>
         </h4>
         <div className="space-y-3">
           <div>
-            <div className="flex justify-between text-xs mb-1 text-slate-600 dark:text-slate-400">
+            <div className="flex justify-between text-xs mb-1 text-slate-600 dark:text-slate-400 font-medium">
               <span>Problem Solving</span><span>{probAcc}%</span>
             </div>
-            <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5"><div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${probAcc}%` }}></div></div>
+            <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5"><div className="bg-blue-500 h-1.5 rounded-full transition-all" style={{ width: `${probAcc}%` }}></div></div>
           </div>
           <div>
-            <div className="flex justify-between text-xs mb-1 text-slate-600 dark:text-slate-400">
+            <div className="flex justify-between text-xs mb-1 text-slate-600 dark:text-slate-400 font-medium">
               <span>Elements</span><span>{elemAcc}%</span>
             </div>
-            <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5"><div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${elemAcc}%` }}></div></div>
+            <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5"><div className="bg-emerald-500 h-1.5 rounded-full transition-all" style={{ width: `${elemAcc}%` }}></div></div>
           </div>
         </div>
       </div>
@@ -447,18 +422,18 @@ function Dashboard({ stats, sets, onStartQuiz, surname }) {
   };
 
   return (
-    <div className="flex flex-col md:grid md:grid-cols-2 gap-8 max-w-4xl mx-auto animate-in fade-in duration-500">
+    <div className="flex flex-col md:grid md:grid-cols-2 gap-8 max-w-5xl mx-auto animate-in fade-in duration-500 w-full">
       
       {/* 1. GREETING */}
       <div className="order-1 md:col-span-2 pt-2">
         <h1 className="font-bold">
           <div className="text-xl md:text-2xl text-slate-500 dark:text-slate-400 font-medium">Welcome back,</div>
-          <div className="text-3xl md:text-4xl mt-1 text-slate-800 dark:text-white font-black">Engr. {surname}!</div>
+          <div className="text-3xl md:text-5xl mt-1 text-slate-800 dark:text-white font-black tracking-tight">Engr. {surname}!</div>
         </h1>
       </div>
 
-      {/* 2. QUIZ SETUP & MOBILE PERFORMANCE */}
-      <div className="order-2 md:order-4 md:col-span-1">
+      {/* 2. QUIZ SETUP & SUBJECT PERFORMANCE */}
+      <div className="order-2 md:order-4 md:col-span-1 flex flex-col">
         <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm transition-colors">
           <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4">Start a Review Session</h3>
           <div className="space-y-4 mb-6">
@@ -500,12 +475,12 @@ function Dashboard({ stats, sets, onStartQuiz, surname }) {
           </div>
         </div>
 
-        {/* Mobile-Only Subject Summaries */}
-        {['PIPE', 'MDSP', 'MESL'].map(renderMobileSubjectCard)}
+        {/* Parity: Detailed Subject Cards visible on Desktop & Mobile */}
+        {['PIPE', 'MDSP', 'MESL'].map(renderSubjectCard)}
       </div>
 
       {/* 3. STATS CARDS */}
-      <div className="order-3 md:order-2 md:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="order-3 md:order-2 md:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-6 h-max">
         <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-4 transition-colors">
           <div className="p-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl shrink-0">
             <CheckCircle className="text-emerald-500 w-8 h-8" />
@@ -536,7 +511,7 @@ function Dashboard({ stats, sets, onStartQuiz, surname }) {
       </div>
 
       {/* 4. HEATMAP */}
-      <div className="order-4 md:order-5 md:col-span-1">
+      <div className="order-4 md:order-5 md:col-span-1 h-max">
         <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm transition-colors">
           <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4">Activity Tracker</h3>
           <div className="flex flex-wrap gap-1.5 mt-4">
@@ -558,10 +533,38 @@ function Dashboard({ stats, sets, onStartQuiz, surname }) {
 // ANALYTICS COMPONENT
 // ==========================================
 function Analytics({ stats }) {
-  const [selectedSubj, setSelectedSubj] = useState('PIPE');
+  const [selectedSubj, setSelectedSubj] = useState('Overall');
 
   if (!stats) return null;
-  const s = stats.subjects[selectedSubj] || { correct: 0, total: 0, types: {}, topics: {} };
+
+  // Aggregate stats dynamically based on Overall vs Individual Subject
+  let s = { correct: 0, total: 0, types: { 'Problem Solving': { correct: 0, total: 0 }, 'Elements': { correct: 0, total: 0 } }, topics: {} };
+
+  if (selectedSubj === 'Overall') {
+    ['PIPE', 'MDSP', 'MESL'].forEach(subj => {
+      const subData = stats.subjects[subj] || { correct: 0, total: 0, types: {}, topics: {} };
+      s.total += subData.total || 0;
+      s.correct += subData.correct || 0;
+
+      ['Problem Solving', 'Elements'].forEach(type => {
+        if (!s.types[type]) s.types[type] = { correct: 0, total: 0 };
+        if (subData.types && subData.types[type]) {
+          s.types[type].total += subData.types[type].total || 0;
+          s.types[type].correct += subData.types[type].correct || 0;
+        }
+      });
+
+      if (subData.topics) {
+        Object.keys(subData.topics).forEach(topic => {
+          if (!s.topics[topic]) s.topics[topic] = { correct: 0, total: 0 };
+          s.topics[topic].total += subData.topics[topic].total || 0;
+          s.topics[topic].correct += subData.topics[topic].correct || 0;
+        });
+      }
+    });
+  } else {
+    s = stats.subjects[selectedSubj] || { correct: 0, total: 0, types: {}, topics: {} };
+  }
   
   const overallAcc = s.total > 0 ? Math.round((s.correct / s.total) * 100) : 0;
   const probAcc = s.types['Problem Solving']?.total > 0 ? Math.round((s.types['Problem Solving'].correct / s.types['Problem Solving'].total) * 100) : 0;
@@ -570,13 +573,14 @@ function Analytics({ stats }) {
   const topicsList = Object.keys(s.topics).map(topic => {
     const t = s.topics[topic];
     return { name: topic, acc: Math.round((t.correct / t.total) * 100), total: t.total };
-  }).sort((a, b) => b.total - a.total); // Sort by most answered
+  }).sort((a, b) => b.total - a.total);
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-500 pt-6">
+    <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-500 pt-6 w-full">
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
-        <h2 className="text-3xl font-bold text-slate-800 dark:text-white">Analytics</h2>
-        <select value={selectedSubj} onChange={e => setSelectedSubj(e.target.value)} className="p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-white outline-none w-full md:w-48 font-bold">
+        <h2 className="text-3xl font-black text-slate-800 dark:text-white">Analytics</h2>
+        <select value={selectedSubj} onChange={e => setSelectedSubj(e.target.value)} className="p-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-white outline-none w-full md:w-64 font-bold shadow-sm">
+          <option value="Overall">Overall (All Subjects)</option>
           <option value="PIPE">PIPE</option>
           <option value="MDSP">MDSP</option>
           <option value="MESL">MESL</option>
@@ -585,38 +589,38 @@ function Analytics({ stats }) {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm text-center">
-          <div className="text-sm font-bold text-slate-500 mb-2 uppercase">Subject Overall</div>
+          <div className="text-sm font-bold text-slate-500 mb-2 uppercase tracking-wider">{selectedSubj} Total</div>
           <div className="text-4xl font-black text-slate-800 dark:text-white">{overallAcc}%</div>
-          <div className="text-xs text-slate-400 mt-2">{s.total} total items</div>
+          <div className="text-xs text-slate-400 mt-2 font-medium">{s.total} items attempted</div>
         </div>
         <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm text-center">
-          <div className="text-sm font-bold text-blue-500 mb-2 uppercase">Problem Solving</div>
+          <div className="text-sm font-bold text-blue-500 mb-2 uppercase tracking-wider">Problem Solving</div>
           <div className="text-4xl font-black text-slate-800 dark:text-white">{probAcc}%</div>
-          <div className="text-xs text-slate-400 mt-2">{s.types['Problem Solving']?.total || 0} items</div>
+          <div className="text-xs text-slate-400 mt-2 font-medium">{s.types['Problem Solving']?.total || 0} items attempted</div>
         </div>
         <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm text-center">
-          <div className="text-sm font-bold text-emerald-500 mb-2 uppercase">Elements</div>
+          <div className="text-sm font-bold text-emerald-500 mb-2 uppercase tracking-wider">Elements</div>
           <div className="text-4xl font-black text-slate-800 dark:text-white">{elemAcc}%</div>
-          <div className="text-xs text-slate-400 mt-2">{s.types['Elements']?.total || 0} items</div>
+          <div className="text-xs text-slate-400 mt-2 font-medium">{s.types['Elements']?.total || 0} items attempted</div>
         </div>
       </div>
 
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800">
-          <h3 className="font-bold text-slate-800 dark:text-white">Topic Performance</h3>
+        <div className="px-6 py-5 border-b border-slate-200 dark:border-slate-800">
+          <h3 className="font-bold text-slate-800 dark:text-white">Topic Mastery Breakdown</h3>
         </div>
-        <div className="p-6 space-y-6">
+        <div className="p-6 space-y-6 max-h-[500px] overflow-y-auto">
           {topicsList.length === 0 ? (
-            <div className="text-slate-500 text-center py-4">No data yet for this subject.</div>
+            <div className="text-slate-500 text-center py-10 font-medium">No topic data logged for {selectedSubj} yet.</div>
           ) : (
             topicsList.map(t => (
               <div key={t.name}>
-                <div className="flex justify-between text-sm mb-2 font-medium">
-                  <span className="text-slate-700 dark:text-slate-300">{t.name} <span className="text-xs text-slate-400 ml-2">({t.total} items)</span></span>
+                <div className="flex justify-between text-sm mb-2 font-bold">
+                  <span className="text-slate-700 dark:text-slate-300">{t.name} <span className="text-xs font-medium text-slate-400 ml-2">({t.total} items)</span></span>
                   <span className={t.acc < 50 ? 'text-red-500' : 'text-emerald-500'}>{t.acc}%</span>
                 </div>
                 <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2">
-                  <div className={`h-2 rounded-full ${t.acc < 50 ? 'bg-red-500' : 'bg-emerald-500'}`} style={{ width: `${t.acc}%` }}></div>
+                  <div className={`h-2 rounded-full transition-all ${t.acc < 50 ? 'bg-red-500' : 'bg-emerald-500'}`} style={{ width: `${t.acc}%` }}></div>
                 </div>
               </div>
             ))
@@ -637,56 +641,81 @@ function StudyHistory({ userId }) {
 
   useEffect(() => {
     async function fetchHistory() {
-      const { data, error } = await supabase.from('study_history').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(20);
+      const { data } = await supabase.from('study_history').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(20);
       if (data) setHistory(data);
       setLoading(false);
     }
     fetchHistory();
   }, [userId]);
 
-  if (loading) return <div className="text-center py-10 text-slate-500">Loading history...</div>;
+  if (loading) return <div className="text-center py-10 text-slate-500 font-bold">Loading history...</div>;
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in duration-500 pt-6 pb-10">
-      <h2 className="text-3xl font-bold text-slate-800 dark:text-white mb-8">Study History</h2>
+    <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in duration-500 pt-6 pb-10 w-full">
+      <h2 className="text-3xl font-black text-slate-800 dark:text-white mb-8">Study History</h2>
       
       {history.length === 0 ? (
-        <div className="text-center text-slate-500 bg-white dark:bg-slate-900 p-10 rounded-xl border border-slate-200 dark:border-slate-800">
-          No review sessions found yet. Take a quiz to see your history!
+        <div className="text-center font-medium text-slate-500 bg-white dark:bg-slate-900 p-10 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+          No review sessions found yet. Take a quiz to log your history!
         </div>
       ) : (
-        history.map(session => (
-          <div key={session.id} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden transition-colors">
-            <div 
-              className="p-5 flex flex-col md:flex-row md:items-center justify-between cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800"
-              onClick={() => setExpandedId(expandedId === session.id ? null : session.id)}
-            >
-              <div>
-                <div className="text-sm text-slate-500 dark:text-slate-400 font-medium mb-1">
-                  {new Date(session.created_at).toLocaleString()}
-                </div>
-                <div className="font-bold text-slate-800 dark:text-white text-lg">
-                  Score: {session.score} / {session.total} <span className="text-sm font-normal text-slate-500 ml-2">({Math.round((session.score/session.total)*100)}%)</span>
-                </div>
-              </div>
-              <ChevronRight className={`w-5 h-5 text-slate-400 mt-3 md:mt-0 transition-transform ${expandedId === session.id ? 'rotate-90' : ''}`} />
-            </div>
+        history.map(session => {
+          const missed = session.details?.filter(q => !q.isCorrect) || [];
+          const correct = session.details?.filter(q => q.isCorrect) || [];
 
-            {expandedId === session.id && session.details && (
-              <div className="p-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 space-y-4">
-                {session.details.map((q, i) => (
-                  <div key={i} className={`p-4 rounded-lg border-l-4 ${q.isCorrect ? 'border-l-emerald-500 bg-white dark:bg-slate-900' : 'border-l-red-500 bg-white dark:bg-slate-900'}`}>
-                    <div className="text-sm font-medium text-slate-800 dark:text-slate-200 mb-2">{q.q}</div>
-                    <div className="text-xs space-y-1">
-                      <div className={q.isCorrect ? "text-emerald-600 dark:text-emerald-400 font-bold" : "text-red-500 line-through opacity-80"}>Your Answer: {q.userAnswer || 'Skipped'}</div>
-                      {!q.isCorrect && <div className="text-emerald-600 dark:text-emerald-400 font-bold">Correct: {q.correctText}</div>}
-                    </div>
+          return (
+            <div key={session.id} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden transition-colors">
+              <div 
+                className="p-5 md:px-6 flex flex-col md:flex-row md:items-center justify-between cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                onClick={() => setExpandedId(expandedId === session.id ? null : session.id)}
+              >
+                <div>
+                  <div className="text-sm text-slate-500 dark:text-slate-400 font-bold mb-1 tracking-wider uppercase">
+                    {new Date(session.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
                   </div>
-                ))}
+                  <div className="font-black text-slate-800 dark:text-white text-xl">
+                    Score: {session.score} / {session.total} <span className="text-sm font-semibold text-slate-500 ml-2">({Math.round((session.score/session.total)*100)}%)</span>
+                  </div>
+                </div>
+                <ChevronRight className={`w-6 h-6 text-slate-400 mt-3 md:mt-0 transition-transform ${expandedId === session.id ? 'rotate-90' : ''}`} />
               </div>
-            )}
-          </div>
-        ))
+
+              {/* Fixed Dimension Expanded Dropdown with Segregated Data */}
+              {expandedId === session.id && session.details && (
+                <div className="p-5 md:px-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 space-y-8 max-h-[450px] overflow-y-auto">
+                  
+                  {missed.length > 0 && (
+                    <div className="space-y-4">
+                      <h4 className="font-bold text-red-600 dark:text-red-400 flex items-center gap-2 text-lg"><XCircle className="w-5 h-5"/> Needs Review</h4>
+                      {missed.map((q, i) => (
+                        <div key={`missed-${i}`} className="p-4 rounded-xl border-l-4 border-l-red-500 bg-white dark:bg-slate-900 shadow-sm">
+                          <div className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-2">{q.q}</div>
+                          <div className="text-xs space-y-1.5 font-medium">
+                            <div className="text-red-500 line-through opacity-80">Your Answer: {q.userAnswer || 'Skipped / Timeout'}</div>
+                            <div className="text-emerald-600 dark:text-emerald-400 font-bold text-sm">Correct: {q.correctText}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {correct.length > 0 && (
+                    <div className="space-y-4">
+                      <h4 className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-2 text-lg"><CheckCircle className="w-5 h-5"/> Mastered</h4>
+                      {correct.map((q, i) => (
+                        <div key={`correct-${i}`} className="p-4 rounded-xl border-l-4 border-l-emerald-500 bg-white dark:bg-slate-900 shadow-sm">
+                          <div className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-2">{q.q}</div>
+                          <div className="text-xs font-bold text-emerald-600 dark:text-emerald-400">You answered: {q.userAnswer}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                </div>
+              )}
+            </div>
+          );
+        })
       )}
     </div>
   );
@@ -763,15 +792,15 @@ function QuizActive({ questions: initialQuestions, onComplete }) {
       </div>
       
       <div className="pb-16 flex-1">
-        <h2 className="text-xl md:text-2xl font-semibold text-slate-800 dark:text-white mb-8 leading-relaxed whitespace-pre-line">{currentQ.question_text}</h2>
+        <h2 className="text-xl md:text-2xl font-bold text-slate-800 dark:text-white mb-8 leading-relaxed whitespace-pre-line">{currentQ.question_text}</h2>
         <div className="space-y-3 mb-8">
           {currentQ.choices.map((choice, idx) => {
             const isSelected = selectedOpt === choice;
             const isActuallyCorrect = choice === currentQ.correct_text;
-            let btnStyle = "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:border-blue-300 dark:hover:border-blue-500";
+            let btnStyle = "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:border-blue-300 dark:hover:border-blue-500 font-medium";
             if (hasAnswered) {
               if (isActuallyCorrect) btnStyle = "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-400 font-bold";
-              else if (isSelected) btnStyle = "border-red-500 bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-400";
+              else if (isSelected) btnStyle = "border-red-500 bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-400 font-bold";
               else btnStyle = "border-slate-100 dark:border-slate-800 opacity-50";
             }
             return (
@@ -788,11 +817,11 @@ function QuizActive({ questions: initialQuestions, onComplete }) {
       
       <div className="sticky bottom-0 -mx-6 md:-mx-10 px-6 md:px-10 py-4 bg-slate-50 dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 mt-auto z-10 flex justify-end shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)] dark:shadow-none">
         {!hasAnswered ? (
-          <button onClick={handleSkip} className="flex items-center space-x-2 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white font-medium px-4 py-2">
+          <button onClick={handleSkip} className="flex items-center space-x-2 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white font-bold px-4 py-2">
             <span>Skip Question</span><SkipForward className="w-4 h-4" />
           </button>
         ) : (
-          <button onClick={nextQuestion} className="bg-slate-900 dark:bg-blue-600 hover:bg-slate-800 dark:hover:bg-blue-700 text-white font-semibold py-3 px-8 rounded-xl transition shadow-sm">
+          <button onClick={nextQuestion} className="bg-slate-900 dark:bg-blue-600 hover:bg-slate-800 dark:hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-xl transition shadow-sm">
             {results.length === initialQuestions.length ? "Finish & Review" : "Next Question"}
           </button>
         )}
@@ -810,16 +839,16 @@ function QuizResults({ results, score, onBack }) {
   const correct = results.filter(r => r.isCorrect);
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 animate-in zoom-in-95 duration-500 pb-10">
-      <div className="text-center border-b border-slate-200 dark:border-slate-800 pb-8">
+    <div className="max-w-4xl mx-auto space-y-8 animate-in zoom-in-95 duration-500 pb-10 w-full">
+      <div className="text-center border-b border-slate-200 dark:border-slate-800 pb-8 pt-6">
         <h2 className="text-3xl font-black text-slate-900 dark:text-white mb-6">Quiz Completed!</h2>
         <div className="flex justify-center gap-4">
           <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm w-40">
-            <div className="text-sm text-slate-500 dark:text-slate-400 font-bold uppercase">Final Score</div>
+            <div className="text-sm text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">Final Score</div>
             <div className="text-4xl font-black text-blue-600 dark:text-blue-400 mt-2">{score}/{results.length}</div>
           </div>
           <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm w-40">
-            <div className="text-sm text-slate-500 dark:text-slate-400 font-bold uppercase">Accuracy</div>
+            <div className="text-sm text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">Accuracy</div>
             <div className="text-4xl font-black text-slate-700 dark:text-slate-200 mt-2">{percentage}%</div>
           </div>
         </div>
@@ -829,8 +858,8 @@ function QuizResults({ results, score, onBack }) {
           <h3 className="text-xl font-bold text-red-600 dark:text-red-400 flex items-center gap-2"><AlertCircle className="w-6 h-6"/> Needs Review (Missed)</h3>
           {missed.map((res, i) => (
             <div key={i} className="p-5 rounded-xl bg-white dark:bg-slate-900 border-l-4 border-l-red-500 border border-slate-200 dark:border-slate-800 shadow-sm">
-              <div className="text-slate-800 dark:text-slate-200 font-medium whitespace-pre-line mb-3">{res.question.question_text}</div>
-              <div className="flex flex-col gap-2 text-sm">
+              <div className="text-slate-800 dark:text-slate-200 font-bold whitespace-pre-line mb-3">{res.question.question_text}</div>
+              <div className="flex flex-col gap-2 text-sm font-medium">
                 <div className="flex items-center gap-2 text-red-600 dark:text-red-400"><XCircle className="w-4 h-4"/> <span className="line-through opacity-80">You answered: {res.userAnswer || "Skipped/Timeout"}</span></div>
                 <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 font-bold"><CheckCircle className="w-4 h-4"/> <span>Correct: {res.question.correct_text}</span></div>
               </div>
@@ -843,7 +872,7 @@ function QuizResults({ results, score, onBack }) {
           <h3 className="text-xl font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-2"><CheckCircle className="w-6 h-6"/> Mastered (Correct)</h3>
           {correct.map((res, i) => (
             <div key={i} className="p-5 rounded-xl bg-white dark:bg-slate-900 border-l-4 border-l-emerald-500 border border-slate-200 dark:border-slate-800 shadow-sm">
-              <div className="text-slate-800 dark:text-slate-200 font-medium whitespace-pre-line mb-3">{res.question.question_text}</div>
+              <div className="text-slate-800 dark:text-slate-200 font-bold whitespace-pre-line mb-3">{res.question.question_text}</div>
               <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 text-sm font-bold"><CheckCircle className="w-4 h-4"/> <span>You answered: {res.userAnswer}</span></div>
             </div>
           ))}
@@ -879,16 +908,16 @@ function Settings() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-8 animate-in fade-in duration-500 pt-10">
-      <h2 className="text-3xl font-bold text-slate-800 dark:text-white mb-6">Account Settings</h2>
+    <div className="max-w-2xl mx-auto space-y-8 animate-in fade-in duration-500 pt-6 w-full">
+      <h2 className="text-3xl font-black text-slate-800 dark:text-white mb-6">Account Settings</h2>
       <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
         <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-2">Change Password</h3>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Update your password at any time to secure your account.</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 font-medium">Update your password at any time to secure your account.</p>
         <form onSubmit={handlePasswordUpdate} className="flex flex-col gap-4">
           <input type="password" placeholder="Enter new password (min. 6 chars)" value={newPassword} onChange={e => setNewPassword(e.target.value)} required minLength={6} className="p-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500" />
           <button type="submit" disabled={loading} className="p-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition disabled:opacity-50">{loading ? "Updating..." : "Update Password"}</button>
         </form>
-        {message && <div className={`mt-4 p-3 rounded-lg text-sm font-semibold ${message.includes('Error') ? 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400' : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400'}`}>{message}</div>}
+        {message && <div className={`mt-4 p-3 rounded-lg text-sm font-bold ${message.includes('Error') ? 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400' : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400'}`}>{message}</div>}
       </div>
     </div>
   );
