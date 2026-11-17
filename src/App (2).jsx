@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from './supabaseClient';
-import { Play, Clock, CheckCircle, XCircle, BarChart2, BookOpen, Activity, LogOut, ChevronRight, SkipForward, AlertCircle, Calendar, Moon, Sun, Menu, X } from 'lucide-react';
+import { Play, Clock, CheckCircle, XCircle, BarChart2, BookOpen, Activity, LogOut, ChevronRight, SkipForward, AlertCircle, Calendar, Moon, Sun, Menu, X, Eye, EyeOff } from 'lucide-react';
 
 const TIME_PER_QUESTION_SEC = 180;
 
@@ -17,6 +17,9 @@ export default function App() {
   // Auth & Onboarding State
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
+  
   const [needsProfile, setNeedsProfile] = useState(false);
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -24,7 +27,7 @@ export default function App() {
   
   // App Navigation & Theme
   const [view, setView] = useState('dashboard');
-  const [activeTab, setActiveTab] = useState('Dashboard');
+  const [activeTab, setActiveTab] = useState('Dashboard'); // Dashboard, Analytics, Study History, Settings
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
@@ -36,7 +39,6 @@ export default function App() {
 
   // Filters from DB
   const [availableSets, setAvailableSets] = useState([]);
-  const [availableTypes, setAvailableTypes] = useState([]);
 
   useEffect(() => {
     if (localStorage.getItem('theme') === 'dark') {
@@ -57,14 +59,14 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  const handleSessionCheck = (session) => {
+  const handleSessionCheck = async (session) => {
     setSession(session);
     if (session) {
       if (!session.user.user_metadata?.last_name) {
         setNeedsProfile(true);
       } else {
         setNeedsProfile(false);
-        loadUserStats(session.user.id);
+        await loadUserStats(session.user.id);
         fetchFilters();
       }
     }
@@ -83,30 +85,52 @@ export default function App() {
     }
   };
 
-  const loadUserStats = (userId) => {
-    const savedStats = localStorage.getItem(`me_stats_${userId}`);
-    if (savedStats) {
-      setStats(JSON.parse(savedStats));
-    } else {
-      setStats({
-        totalQuizzes: 0, totalQuestions: 0, correctAnswers: 0, totalTimeSpent: 0, history: {}, 
-        subjects: { 'PIPE': { correct: 0, total: 0 }, 'MDSP': { correct: 0, total: 0 }, 'MESL': { correct: 0, total: 0 } }
-      });
+  const loadUserStats = async (userId) => {
+    try {
+      const { data, error } = await supabase.from('user_stats').select('stats_data').eq('user_id', userId).single();
+      
+      if (data && data.stats_data) {
+        // Ensure nested structures exist for new analytics tracking
+        const s = data.stats_data;
+        if (!s.subjects) s.subjects = {};
+        ['PIPE', 'MDSP', 'MESL'].forEach(subj => {
+          if (!s.subjects[subj]) s.subjects[subj] = { correct: 0, total: 0, types: {}, topics: {} };
+          if (!s.subjects[subj].types) s.subjects[subj].types = {};
+          if (!s.subjects[subj].topics) s.subjects[subj].topics = {};
+        });
+        setStats(s);
+      } else {
+        setStats({
+          totalQuizzes: 0, totalQuestions: 0, correctAnswers: 0, totalTimeSpent: 0, history: {}, 
+          subjects: { 
+            'PIPE': { correct: 0, total: 0, types: {}, topics: {} }, 
+            'MDSP': { correct: 0, total: 0, types: {}, topics: {} }, 
+            'MESL': { correct: 0, total: 0, types: {}, topics: {} } 
+          }
+        });
+      }
+    } catch (err) {
+      console.error("Error fetching stats:", err);
     }
   };
 
   const fetchFilters = async () => {
-    const { data } = await supabase.from('questions').select('set_name, question_type');
-    if (data) {
-      setAvailableSets([...new Set(data.map(q => q.set_name).filter(Boolean))]);
-      setAvailableTypes([...new Set(data.map(q => q.question_type).filter(Boolean))]);
-    }
+    const { data } = await supabase.from('questions').select('set_name');
+    if (data) setAvailableSets([...new Set(data.map(q => q.set_name).filter(Boolean))]);
   };
 
   const handleLogin = async (e) => {
     e.preventDefault();
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) alert(error.message);
+  };
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    const { error } = await supabase.auth.resetPasswordForEmail(email);
+    if (error) alert(error.message);
+    else alert("Password reset link sent to your email!");
+    setIsForgotPassword(false);
   };
 
   const handleProfileComplete = async (e) => {
@@ -120,7 +144,7 @@ export default function App() {
       alert(error.message);
     } else {
       setNeedsProfile(false);
-      loadUserStats(session.user.id);
+      await loadUserStats(session.user.id);
       fetchFilters();
     }
   };
@@ -150,7 +174,7 @@ export default function App() {
     }
   };
 
-  const handleQuizComplete = (finalResults, finalScore) => {
+  const handleQuizComplete = async (finalResults, finalScore) => {
     const totalTimeForQuiz = finalResults.reduce((acc, curr) => acc + curr.timeSpent, 0);
     const newStats = { ...stats };
     
@@ -162,15 +186,53 @@ export default function App() {
     const today = new Date().toISOString().split('T')[0];
     newStats.history[today] = (newStats.history[today] || 0) + finalResults.length;
 
+    // Advanced Tracking for Analytics
     finalResults.forEach(res => {
       const subj = res.question.subject || 'Mixed';
-      if (!newStats.subjects[subj]) newStats.subjects[subj] = { correct: 0, total: 0 };
+      const qType = res.question.question_type || 'Uncategorized';
+      const topic = res.question.topic || 'General';
+
+      if (!newStats.subjects[subj]) newStats.subjects[subj] = { correct: 0, total: 0, types: {}, topics: {} };
+      
+      // Overall Subject
       newStats.subjects[subj].total += 1;
       if (res.isCorrect) newStats.subjects[subj].correct += 1;
+
+      // Type Tracking (Elements vs Problem Solving)
+      if (!newStats.subjects[subj].types[qType]) newStats.subjects[subj].types[qType] = { correct: 0, total: 0 };
+      newStats.subjects[subj].types[qType].total += 1;
+      if (res.isCorrect) newStats.subjects[subj].types[qType].correct += 1;
+
+      // Topic Tracking
+      if (!newStats.subjects[subj].topics[topic]) newStats.subjects[subj].topics[topic] = { correct: 0, total: 0 };
+      newStats.subjects[subj].topics[topic].total += 1;
+      if (res.isCorrect) newStats.subjects[subj].topics[topic].correct += 1;
     });
 
     setStats(newStats);
-    localStorage.setItem(`me_stats_${session.user.id}`, JSON.stringify(newStats));
+    
+    // Push updated aggregate stats
+    await supabase.from('user_stats').upsert({
+      user_id: session.user.id,
+      stats_data: newStats
+    });
+
+    // Save individual session history
+    const historyDetails = finalResults.map(r => ({
+      q: r.question.question_text,
+      userAnswer: r.userAnswer,
+      correctText: r.question.correct_text,
+      isCorrect: r.isCorrect,
+      subject: r.question.subject
+    }));
+
+    await supabase.from('study_history').insert({
+      user_id: session.user.id,
+      score: finalScore,
+      total: finalResults.length,
+      details: historyDetails
+    });
+
     setQuizResults(finalResults);
     setQuizScore(finalScore);
     setView('results');
@@ -182,14 +244,36 @@ export default function App() {
   if (!session) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 font-sans p-4">
-        <div className="p-10 bg-white rounded-2xl shadow-sm border border-slate-200 w-full max-w-md">
+        <div className="p-10 bg-white rounded-2xl shadow-sm border border-slate-200 w-full max-w-md relative">
           <h2 className="text-2xl font-bold mb-6 text-center text-slate-800">ME Board Prep</h2>
-          <p className="text-center text-slate-500 mb-6 text-sm">Authorized Access Only</p>
-          <form onSubmit={handleLogin} className="flex flex-col gap-4">
-            <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required className="p-3 rounded-lg border border-slate-300 outline-none" />
-            <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} required className="p-3 rounded-lg border border-slate-300 outline-none" />
-            <button type="submit" className="p-3 bg-slate-900 text-white rounded-lg font-bold hover:bg-slate-800 transition">Login</button>
-          </form>
+          
+          {!isForgotPassword ? (
+            <>
+              <p className="text-center text-slate-500 mb-6 text-sm">Authorized Access Only</p>
+              <form onSubmit={handleLogin} className="flex flex-col gap-4">
+                <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required className="p-3 rounded-lg border border-slate-300 outline-none" />
+                <div className="relative">
+                  <input type={showPassword ? 'text' : 'password'} placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} required className="p-3 rounded-lg border border-slate-300 outline-none w-full pr-10" />
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-3.5 text-slate-400 hover:text-slate-600">
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
+                <div className="text-right">
+                  <button type="button" onClick={() => setIsForgotPassword(true)} className="text-sm text-blue-600 hover:underline">Forgot password?</button>
+                </div>
+                <button type="submit" className="p-3 bg-slate-900 text-white rounded-lg font-bold hover:bg-slate-800 transition">Login</button>
+              </form>
+            </>
+          ) : (
+            <>
+              <p className="text-center text-slate-500 mb-6 text-sm">Enter your email to receive a reset link.</p>
+              <form onSubmit={handleForgotPassword} className="flex flex-col gap-4">
+                <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required className="p-3 rounded-lg border border-slate-300 outline-none" />
+                <button type="submit" className="p-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition">Send Reset Link</button>
+                <button type="button" onClick={() => setIsForgotPassword(false)} className="text-sm text-slate-500 hover:underline mt-2">Back to Login</button>
+              </form>
+            </>
+          )}
         </div>
       </div>
     );
@@ -205,7 +289,14 @@ export default function App() {
           <form onSubmit={handleProfileComplete} className="flex flex-col gap-4">
             <input type="text" placeholder="First Name" value={firstName} onChange={e => setFirstName(e.target.value)} required className="p-3 rounded-lg border border-slate-300 outline-none focus:ring-2 focus:ring-blue-500" />
             <input type="text" placeholder="Last Name (e.g. Dela Cruz)" value={lastName} onChange={e => setLastName(e.target.value)} required className="p-3 rounded-lg border border-slate-300 outline-none focus:ring-2 focus:ring-blue-500" />
-            <input type="password" placeholder="New Personal Password (min. 6 chars)" value={newPassword} onChange={e => setNewPassword(e.target.value)} required minLength={6} className="p-3 rounded-lg border border-slate-300 outline-none focus:ring-2 focus:ring-blue-500" />
+            
+            <div className="relative">
+              <input type={showPassword ? 'text' : 'password'} placeholder="New Personal Password (min. 6 chars)" value={newPassword} onChange={e => setNewPassword(e.target.value)} required minLength={6} className="p-3 rounded-lg border border-slate-300 outline-none focus:ring-2 focus:ring-blue-500 w-full pr-10" />
+              <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-3.5 text-slate-400 hover:text-slate-600">
+                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              </button>
+            </div>
+            
             <button type="submit" className="p-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition mt-2">Save & Enter Dashboard</button>
           </form>
         </div>
@@ -274,17 +365,12 @@ export default function App() {
 
         <div className="flex-1 overflow-y-auto p-6 md:px-10 md:pb-10 pt-0 relative flex flex-col">
           {view === 'dashboard' && activeTab === 'Dashboard' && (
-            <Dashboard stats={stats} sets={availableSets} types={availableTypes} onStartQuiz={startQuiz} surname={session.user.user_metadata?.last_name || ''} />
+            <Dashboard stats={stats} sets={availableSets} onStartQuiz={startQuiz} surname={session.user.user_metadata?.last_name || ''} />
           )}
           
+          {view === 'dashboard' && activeTab === 'Analytics' && <Analytics stats={stats} />}
+          {view === 'dashboard' && activeTab === 'Study History' && <StudyHistory userId={session.user.id} />}
           {view === 'dashboard' && activeTab === 'Settings' && <Settings />}
-          
-          {view === 'dashboard' && activeTab !== 'Dashboard' && activeTab !== 'Settings' && (
-            <div className="flex flex-col items-center justify-center h-full text-slate-400">
-              <Calendar className="w-16 h-16 mb-4 opacity-50" />
-              <h2 className="text-xl font-bold text-slate-600">{activeTab} coming soon...</h2>
-            </div>
-          )}
 
           {view === 'quiz' && questions.length > 0 && <QuizActive questions={questions} onComplete={handleQuizComplete} />}
           {view === 'results' && <QuizResults results={quizResults} score={quizScore} onBack={() => setView('dashboard')} />}
@@ -295,9 +381,9 @@ export default function App() {
 }
 
 // ==========================================
-// DASHBOARD COMPONENT (Responsive Reordered)
+// DASHBOARD COMPONENT
 // ==========================================
-function Dashboard({ stats, sets, types, onStartQuiz, surname }) {
+function Dashboard({ stats, sets, onStartQuiz, surname }) {
   const [selectedSubject, setSelectedSubject] = useState('All');
   const [selectedSet, setSelectedSet] = useState('All');
   const [selectedType, setSelectedType] = useState('All');
@@ -326,6 +412,40 @@ function Dashboard({ stats, sets, types, onStartQuiz, surname }) {
   const accuracy = stats.totalQuestions > 0 ? Math.round((stats.correctAnswers / stats.totalQuestions) * 100) : 0;
   const avgTime = stats.totalQuestions > 0 ? Math.round(stats.totalTimeSpent / stats.totalQuestions) : 0;
 
+  // Helper to render Mobile Subject Perf Cards
+  const renderMobileSubjectCard = (subjectName) => {
+    const s = stats.subjects[subjectName];
+    if (!s || s.total === 0) return null;
+    
+    const probTotal = s.types['Problem Solving']?.total || 0;
+    const probAcc = probTotal > 0 ? Math.round((s.types['Problem Solving'].correct / probTotal) * 100) : 0;
+    
+    const elemTotal = s.types['Elements']?.total || 0;
+    const elemAcc = elemTotal > 0 ? Math.round((s.types['Elements'].correct / elemTotal) * 100) : 0;
+
+    return (
+      <div key={subjectName} className="md:hidden bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm mt-4">
+        <h4 className="font-bold text-slate-800 dark:text-white mb-3 flex items-center justify-between">
+          {subjectName} <span className="text-xs font-normal text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">{s.total} items</span>
+        </h4>
+        <div className="space-y-3">
+          <div>
+            <div className="flex justify-between text-xs mb-1 text-slate-600 dark:text-slate-400">
+              <span>Problem Solving</span><span>{probAcc}%</span>
+            </div>
+            <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5"><div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${probAcc}%` }}></div></div>
+          </div>
+          <div>
+            <div className="flex justify-between text-xs mb-1 text-slate-600 dark:text-slate-400">
+              <span>Elements</span><span>{elemAcc}%</span>
+            </div>
+            <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5"><div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${elemAcc}%` }}></div></div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="flex flex-col md:grid md:grid-cols-2 gap-8 max-w-4xl mx-auto animate-in fade-in duration-500">
       
@@ -337,7 +457,7 @@ function Dashboard({ stats, sets, types, onStartQuiz, surname }) {
         </h1>
       </div>
 
-      {/* 2. QUIZ SETUP */}
+      {/* 2. QUIZ SETUP & MOBILE PERFORMANCE */}
       <div className="order-2 md:order-4 md:col-span-1">
         <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm transition-colors">
           <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4">Start a Review Session</h3>
@@ -362,7 +482,8 @@ function Dashboard({ stats, sets, types, onStartQuiz, surname }) {
               <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Select Question Type</label>
               <select value={selectedType} onChange={e => setSelectedType(e.target.value)} className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white outline-none">
                 <option value="All">Problem Solving & Elements</option>
-                {types.map(t => <option key={t} value={t}>{t}</option>)}
+                <option value="Problem Solving">Problem Solving Only</option>
+                <option value="Elements">Elements Only</option>
               </select>
             </div>
           </div>
@@ -378,6 +499,9 @@ function Dashboard({ stats, sets, types, onStartQuiz, surname }) {
             </button>
           </div>
         </div>
+
+        {/* Mobile-Only Subject Summaries */}
+        {['PIPE', 'MDSP', 'MESL'].map(renderMobileSubjectCard)}
       </div>
 
       {/* 3. STATS CARDS */}
@@ -431,7 +555,145 @@ function Dashboard({ stats, sets, types, onStartQuiz, surname }) {
 }
 
 // ==========================================
-// ACTIVE QUIZ COMPONENT (Sticky Bottom & Skip Logic)
+// ANALYTICS COMPONENT
+// ==========================================
+function Analytics({ stats }) {
+  const [selectedSubj, setSelectedSubj] = useState('PIPE');
+
+  if (!stats) return null;
+  const s = stats.subjects[selectedSubj] || { correct: 0, total: 0, types: {}, topics: {} };
+  
+  const overallAcc = s.total > 0 ? Math.round((s.correct / s.total) * 100) : 0;
+  const probAcc = s.types['Problem Solving']?.total > 0 ? Math.round((s.types['Problem Solving'].correct / s.types['Problem Solving'].total) * 100) : 0;
+  const elemAcc = s.types['Elements']?.total > 0 ? Math.round((s.types['Elements'].correct / s.types['Elements'].total) * 100) : 0;
+
+  const topicsList = Object.keys(s.topics).map(topic => {
+    const t = s.topics[topic];
+    return { name: topic, acc: Math.round((t.correct / t.total) * 100), total: t.total };
+  }).sort((a, b) => b.total - a.total); // Sort by most answered
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-500 pt-6">
+      <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+        <h2 className="text-3xl font-bold text-slate-800 dark:text-white">Analytics</h2>
+        <select value={selectedSubj} onChange={e => setSelectedSubj(e.target.value)} className="p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-white outline-none w-full md:w-48 font-bold">
+          <option value="PIPE">PIPE</option>
+          <option value="MDSP">MDSP</option>
+          <option value="MESL">MESL</option>
+        </select>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm text-center">
+          <div className="text-sm font-bold text-slate-500 mb-2 uppercase">Subject Overall</div>
+          <div className="text-4xl font-black text-slate-800 dark:text-white">{overallAcc}%</div>
+          <div className="text-xs text-slate-400 mt-2">{s.total} total items</div>
+        </div>
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm text-center">
+          <div className="text-sm font-bold text-blue-500 mb-2 uppercase">Problem Solving</div>
+          <div className="text-4xl font-black text-slate-800 dark:text-white">{probAcc}%</div>
+          <div className="text-xs text-slate-400 mt-2">{s.types['Problem Solving']?.total || 0} items</div>
+        </div>
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm text-center">
+          <div className="text-sm font-bold text-emerald-500 mb-2 uppercase">Elements</div>
+          <div className="text-4xl font-black text-slate-800 dark:text-white">{elemAcc}%</div>
+          <div className="text-xs text-slate-400 mt-2">{s.types['Elements']?.total || 0} items</div>
+        </div>
+      </div>
+
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800">
+          <h3 className="font-bold text-slate-800 dark:text-white">Topic Performance</h3>
+        </div>
+        <div className="p-6 space-y-6">
+          {topicsList.length === 0 ? (
+            <div className="text-slate-500 text-center py-4">No data yet for this subject.</div>
+          ) : (
+            topicsList.map(t => (
+              <div key={t.name}>
+                <div className="flex justify-between text-sm mb-2 font-medium">
+                  <span className="text-slate-700 dark:text-slate-300">{t.name} <span className="text-xs text-slate-400 ml-2">({t.total} items)</span></span>
+                  <span className={t.acc < 50 ? 'text-red-500' : 'text-emerald-500'}>{t.acc}%</span>
+                </div>
+                <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2">
+                  <div className={`h-2 rounded-full ${t.acc < 50 ? 'bg-red-500' : 'bg-emerald-500'}`} style={{ width: `${t.acc}%` }}></div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// STUDY HISTORY COMPONENT
+// ==========================================
+function StudyHistory({ userId }) {
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedId, setExpandedId] = useState(null);
+
+  useEffect(() => {
+    async function fetchHistory() {
+      const { data, error } = await supabase.from('study_history').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(20);
+      if (data) setHistory(data);
+      setLoading(false);
+    }
+    fetchHistory();
+  }, [userId]);
+
+  if (loading) return <div className="text-center py-10 text-slate-500">Loading history...</div>;
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in duration-500 pt-6 pb-10">
+      <h2 className="text-3xl font-bold text-slate-800 dark:text-white mb-8">Study History</h2>
+      
+      {history.length === 0 ? (
+        <div className="text-center text-slate-500 bg-white dark:bg-slate-900 p-10 rounded-xl border border-slate-200 dark:border-slate-800">
+          No review sessions found yet. Take a quiz to see your history!
+        </div>
+      ) : (
+        history.map(session => (
+          <div key={session.id} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden transition-colors">
+            <div 
+              className="p-5 flex flex-col md:flex-row md:items-center justify-between cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800"
+              onClick={() => setExpandedId(expandedId === session.id ? null : session.id)}
+            >
+              <div>
+                <div className="text-sm text-slate-500 dark:text-slate-400 font-medium mb-1">
+                  {new Date(session.created_at).toLocaleString()}
+                </div>
+                <div className="font-bold text-slate-800 dark:text-white text-lg">
+                  Score: {session.score} / {session.total} <span className="text-sm font-normal text-slate-500 ml-2">({Math.round((session.score/session.total)*100)}%)</span>
+                </div>
+              </div>
+              <ChevronRight className={`w-5 h-5 text-slate-400 mt-3 md:mt-0 transition-transform ${expandedId === session.id ? 'rotate-90' : ''}`} />
+            </div>
+
+            {expandedId === session.id && session.details && (
+              <div className="p-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 space-y-4">
+                {session.details.map((q, i) => (
+                  <div key={i} className={`p-4 rounded-lg border-l-4 ${q.isCorrect ? 'border-l-emerald-500 bg-white dark:bg-slate-900' : 'border-l-red-500 bg-white dark:bg-slate-900'}`}>
+                    <div className="text-sm font-medium text-slate-800 dark:text-slate-200 mb-2">{q.q}</div>
+                    <div className="text-xs space-y-1">
+                      <div className={q.isCorrect ? "text-emerald-600 dark:text-emerald-400 font-bold" : "text-red-500 line-through opacity-80"}>Your Answer: {q.userAnswer || 'Skipped'}</div>
+                      {!q.isCorrect && <div className="text-emerald-600 dark:text-emerald-400 font-bold">Correct: {q.correctText}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+// ==========================================
+// ACTIVE QUIZ COMPONENT
 // ==========================================
 function QuizActive({ questions: initialQuestions, onComplete }) {
   const [questionsList, setQuestionsList] = useState(initialQuestions);
@@ -469,7 +731,6 @@ function QuizActive({ questions: initialQuestions, onComplete }) {
 
   const handleSkip = () => {
     if (hasAnswered) return;
-    // Push the current question to the end of the queue so it reappears later
     setQuestionsList(prev => [...prev, currentQ]);
     setCurrentIndex(prev => prev + 1);
   };
@@ -525,7 +786,6 @@ function QuizActive({ questions: initialQuestions, onComplete }) {
         </div>
       </div>
       
-      {/* Sticky Action Footer */}
       <div className="sticky bottom-0 -mx-6 md:-mx-10 px-6 md:px-10 py-4 bg-slate-50 dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 mt-auto z-10 flex justify-end shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)] dark:shadow-none">
         {!hasAnswered ? (
           <button onClick={handleSkip} className="flex items-center space-x-2 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white font-medium px-4 py-2">
