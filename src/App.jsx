@@ -374,10 +374,16 @@ function Dashboard({ stats, filterData, onStartQuiz, surname }) {
     return [...new Set(filterData.filter(d => d.subject === selectedSubject).map(d => d.set_name).filter(Boolean))].sort();
   }, [selectedSubject, filterData]);
 
-  // Calculate available Question Types strictly based on selected Sets
+  // Calculate available Question Types (Supports "All Sets" fallback if none are clicked)
   const availableTypes = useMemo(() => {
-    if (selectedSets.length === 0 || !filterData) return [];
-    const relevantData = filterData.filter(d => d.subject === selectedSubject && selectedSets.includes(d.set_name));
+    if (!selectedSubject || !filterData) return [];
+    let relevantData = filterData.filter(d => d.subject === selectedSubject);
+    
+    // Narrow down only if specific sets are toggled
+    if (selectedSets.length > 0) {
+      relevantData = relevantData.filter(d => selectedSets.includes(d.set_name));
+    }
+    
     return [...new Set(relevantData.map(d => d.question_type).filter(Boolean))].sort();
   }, [selectedSubject, selectedSets, filterData]);
 
@@ -407,7 +413,6 @@ function Dashboard({ stats, filterData, onStartQuiz, surname }) {
 
   const handleStart = (limit) => {
     if (!selectedSubject) return alert("Please choose a subject first.");
-    if (selectedSets.length === 0) return alert("Please select at least one set.");
     if (selectedTypes.length === 0) return alert("Please select at least one question type (e.g., Problem Solving, Elements).");
     onStartQuiz(selectedSubject, selectedSets, selectedTypes, limit);
   };
@@ -510,7 +515,7 @@ function Dashboard({ stats, filterData, onStartQuiz, surname }) {
               </select>
             </div>
 
-            {/* Set Selector */}
+            {/* Set Selector (Dynamic Multi-Select Chips) */}
             <div>
               <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Select Set(s)</label>
               {!selectedSubject ? (
@@ -548,9 +553,9 @@ function Dashboard({ stats, filterData, onStartQuiz, surname }) {
             {/* Dependent Question Type Selector */}
             <div>
               <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Select Question Type(s)</label>
-              {selectedSets.length === 0 ? (
+              {!selectedSubject ? (
                 <div className="text-sm text-slate-500 italic p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
-                  Please select set(s) first.
+                  Please choose a subject first.
                 </div>
               ) : availableTypes.length === 0 ? (
                 <div className="text-sm text-slate-500 italic p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
