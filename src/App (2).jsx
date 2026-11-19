@@ -37,8 +37,8 @@ export default function App() {
   const [quizResults, setQuizResults] = useState([]);
   const [quizScore, setQuizScore] = useState(0);
 
-  // Filters from DB
-  const [availableSets, setAvailableSets] = useState([]);
+  // Filters from DB (Stores subject and set correlations)
+  const [filterData, setFilterData] = useState([]);
 
   useEffect(() => {
     if (localStorage.getItem('theme') === 'dark') {
@@ -114,8 +114,9 @@ export default function App() {
   };
 
   const fetchFilters = async () => {
-    const { data } = await supabase.from('questions').select('set_name');
-    if (data) setAvailableSets([...new Set(data.map(q => q.set_name).filter(Boolean))]);
+    // Fetch subject and set_name mapping to create dynamic dropdowns
+    const { data } = await supabase.from('questions').select('subject, set_name');
+    if (data) setFilterData(data);
   };
 
   const handleLogin = async (e) => {
@@ -147,16 +148,24 @@ export default function App() {
     }
   };
 
-  const startQuiz = async (selectedSubject, selectedSet, selectedType, limit) => {
+  const startQuiz = async (selectedSubject, selectedSets, selectedType, limit) => {
     try {
-      let query = supabase.from('questions').select('*');
-      if (selectedSubject !== 'All') query = query.eq('subject', selectedSubject);
-      if (selectedSet !== 'All') query = query.eq('set_name', selectedSet);
-      if (selectedType !== 'All') query = query.eq('question_type', selectedType);
+      // 1. Filter by required Subject
+      let query = supabase.from('questions').select('*').eq('subject', selectedSubject);
+      
+      // 2. Filter by multiple sets (if array is not empty, meaning specific sets were chosen)
+      if (selectedSets && selectedSets.length > 0) {
+        query = query.in('set_name', selectedSets);
+      }
+
+      // 3. Filter by Question Type
+      if (selectedType !== 'All') {
+        query = query.eq('question_type', selectedType);
+      }
       
       const { data, error } = await query;
       if (error) throw error;
-      if (!data || data.length === 0) return alert("No questions found for these filters.");
+      if (!data || data.length === 0) return alert("No questions found for these specific filters.");
 
       const randomized = data.sort(() => Math.random() - 0.5).slice(0, limit).map(q => {
         const correctMap = { 'A': q.option_a, 'B': q.option_b, 'C': q.option_c, 'D': q.option_d };
@@ -340,7 +349,7 @@ export default function App() {
 
         <div className="flex-1 overflow-y-auto p-6 md:px-10 md:pb-10 pt-0 relative flex flex-col">
           {view === 'dashboard' && activeTab === 'Dashboard' && (
-            <Dashboard stats={stats} sets={availableSets} onStartQuiz={startQuiz} surname={session.user.user_metadata?.last_name || ''} />
+            <Dashboard stats={stats} filterData={filterData} onStartQuiz={startQuiz} surname={session.user.user_metadata?.last_name || ''} />
           )}
           
           {view === 'dashboard' && activeTab === 'Analytics' && <Analytics stats={stats} />}
@@ -358,11 +367,33 @@ export default function App() {
 // ==========================================
 // DASHBOARD COMPONENT
 // ==========================================
-function Dashboard({ stats, sets, onStartQuiz, surname }) {
-  const [selectedSubject, setSelectedSubject] = useState('All');
-  const [selectedSet, setSelectedSet] = useState('All');
+function Dashboard({ stats, filterData, onStartQuiz, surname }) {
+  // Setup Dashboard States
+  const [selectedSubject, setSelectedSubject] = useState(''); // Default is empty to force a choice
+  const [selectedSets, setSelectedSets] = useState([]); // Array for multi-select
   const [selectedType, setSelectedType] = useState('All');
 
+  // Derive available sets based on the currently selected subject
+  const availableSets = useMemo(() => {
+    if (!selectedSubject || !filterData) return [];
+    return [...new Set(filterData.filter(d => d.subject === selectedSubject).map(d => d.set_name).filter(Boolean))].sort();
+  }, [selectedSubject, filterData]);
+
+  // Handle checking/unchecking sets
+  const toggleSet = (set) => {
+    if (selectedSets.includes(set)) {
+      setSelectedSets(selectedSets.filter(s => s !== set));
+    } else {
+      setSelectedSets([...selectedSets, set]);
+    }
+  };
+
+  const handleStart = (limit) => {
+    if (!selectedSubject) return alert("Please choose a subject first.");
+    onStartQuiz(selectedSubject, selectedSets, selectedType, limit);
+  };
+
+  // Heatmap calculation
   const heatmapData = useMemo(() => {
     if (!stats) return [];
     const data = [];
@@ -398,7 +429,7 @@ function Dashboard({ stats, sets, onStartQuiz, surname }) {
     const elemAcc = elemTotal > 0 ? Math.round((s.types['Elements'].correct / elemTotal) * 100) : 0;
 
     return (
-      <div key={subjectName} className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+      <div key={subjectName} className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm mt-4">
         <h4 className="font-bold text-slate-800 dark:text-white mb-3 flex items-center justify-between">
           {subjectName} <span className="text-xs font-normal text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">{s.total} items</span>
         </h4>
@@ -435,23 +466,58 @@ function Dashboard({ stats, sets, onStartQuiz, surname }) {
       <div className="md:col-span-5 lg:col-span-4 flex flex-col h-max">
         <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm transition-colors">
           <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4">Start a Review Session</h3>
-          <div className="space-y-4 mb-6">
+          <div className="space-y-5 mb-6">
+            
+            {/* Subject Selector (No 'All' option, default is empty) */}
             <div>
               <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Select Subject</label>
-              <select value={selectedSubject} onChange={e => setSelectedSubject(e.target.value)} className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white outline-none">
-                <option value="All">All Subjects</option>
+              <select 
+                value={selectedSubject} 
+                onChange={e => { setSelectedSubject(e.target.value); setSelectedSets([]); }} 
+                className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white outline-none"
+              >
+                <option value="" disabled>Choose subject</option>
                 <option value="PIPE">PIPE</option>
                 <option value="MDSP">MDSP</option>
                 <option value="MESL">MESL</option>
               </select>
             </div>
+
+            {/* Set Selector (Dynamic Multi-Select Chips) */}
             <div>
-              <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Select Set</label>
-              <select value={selectedSet} onChange={e => setSelectedSet(e.target.value)} className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white outline-none">
-                <option value="All">All Sets</option>
-                {sets.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
+              <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Select Set(s)</label>
+              {!selectedSubject ? (
+                <div className="text-sm text-slate-500 italic p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
+                  Please choose a subject first.
+                </div>
+              ) : availableSets.length === 0 ? (
+                <div className="text-sm text-slate-500 italic p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
+                  No sets logged for this subject yet.
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  <button 
+                    onClick={() => setSelectedSets([])} 
+                    className={`px-3 py-1.5 rounded-lg border text-sm font-bold transition-colors ${selectedSets.length === 0 ? 'bg-blue-600 border-blue-600 text-white shadow-sm' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-blue-400'}`}
+                  >
+                    All Sets
+                  </button>
+                  {availableSets.map(s => {
+                    const isSelected = selectedSets.includes(s);
+                    return (
+                      <button 
+                        key={s} 
+                        onClick={() => toggleSet(s)} 
+                        className={`px-3 py-1.5 rounded-lg border text-sm font-bold transition-colors ${isSelected ? 'bg-blue-600 border-blue-600 text-white shadow-sm' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-blue-400'}`}
+                      >
+                        {s}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
             </div>
+
             <div>
               <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Select Question Type</label>
               <select value={selectedType} onChange={e => setSelectedType(e.target.value)} className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white outline-none">
@@ -461,14 +527,15 @@ function Dashboard({ stats, sets, onStartQuiz, surname }) {
               </select>
             </div>
           </div>
+
           <div className="flex flex-col gap-3">
-            <button onClick={() => onStartQuiz(selectedSubject, selectedSet, selectedType, 9999)} className="w-full bg-slate-900 dark:bg-slate-700 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-slate-800 dark:hover:bg-slate-600 transition shadow-sm">
+            <button onClick={() => handleStart(9999)} className="w-full bg-slate-900 dark:bg-slate-700 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-slate-800 dark:hover:bg-slate-600 transition shadow-sm">
               <Play className="w-5 h-5 fill-current" /> Start
             </button>
-            <button onClick={() => onStartQuiz(selectedSubject, selectedSet, selectedType, 10)} className="w-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold py-3 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition border border-slate-200 dark:border-slate-700">
+            <button onClick={() => handleStart(10)} className="w-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold py-3 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition border border-slate-200 dark:border-slate-700">
               Quick Review (10)
             </button>
-            <button onClick={() => onStartQuiz(selectedSubject, selectedSet, selectedType, 100)} className="w-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold py-3 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition border border-slate-200 dark:border-slate-700">
+            <button onClick={() => handleStart(100)} className="w-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold py-3 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition border border-slate-200 dark:border-slate-700">
               Mock Exam (100)
             </button>
           </div>
