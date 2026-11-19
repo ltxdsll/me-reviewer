@@ -37,7 +37,7 @@ export default function App() {
   const [quizResults, setQuizResults] = useState([]);
   const [quizScore, setQuizScore] = useState(0);
 
-  // Filters from DB (Stores subject and set correlations)
+  // Filters from DB
   const [filterData, setFilterData] = useState([]);
 
   useEffect(() => {
@@ -114,7 +114,6 @@ export default function App() {
   };
 
   const fetchFilters = async () => {
-    // Fetch subject and set_name mapping to create dynamic dropdowns
     const { data } = await supabase.from('questions').select('subject, set_name');
     if (data) setFilterData(data);
   };
@@ -148,19 +147,17 @@ export default function App() {
     }
   };
 
-  const startQuiz = async (selectedSubject, selectedSets, selectedType, limit) => {
+  const startQuiz = async (selectedSubject, selectedSets, selectedTypes, limit) => {
     try {
-      // 1. Filter by required Subject
       let query = supabase.from('questions').select('*').eq('subject', selectedSubject);
       
-      // 2. Filter by multiple sets (if array is not empty, meaning specific sets were chosen)
       if (selectedSets && selectedSets.length > 0) {
         query = query.in('set_name', selectedSets);
       }
 
-      // 3. Filter by Question Type
-      if (selectedType !== 'All') {
-        query = query.eq('question_type', selectedType);
+      // Filter by multi-selected question types
+      if (selectedTypes && selectedTypes.length > 0) {
+        query = query.in('question_type', selectedTypes);
       }
       
       const { data, error } = await query;
@@ -368,18 +365,15 @@ export default function App() {
 // DASHBOARD COMPONENT
 // ==========================================
 function Dashboard({ stats, filterData, onStartQuiz, surname }) {
-  // Setup Dashboard States
-  const [selectedSubject, setSelectedSubject] = useState(''); // Default is empty to force a choice
-  const [selectedSets, setSelectedSets] = useState([]); // Array for multi-select
-  const [selectedType, setSelectedType] = useState('All');
+  const [selectedSubject, setSelectedSubject] = useState(''); 
+  const [selectedSets, setSelectedSets] = useState([]); 
+  const [selectedTypes, setSelectedTypes] = useState([]); // Multi-select array for Question Types
 
-  // Derive available sets based on the currently selected subject
   const availableSets = useMemo(() => {
     if (!selectedSubject || !filterData) return [];
     return [...new Set(filterData.filter(d => d.subject === selectedSubject).map(d => d.set_name).filter(Boolean))].sort();
   }, [selectedSubject, filterData]);
 
-  // Handle checking/unchecking sets
   const toggleSet = (set) => {
     if (selectedSets.includes(set)) {
       setSelectedSets(selectedSets.filter(s => s !== set));
@@ -388,12 +382,20 @@ function Dashboard({ stats, filterData, onStartQuiz, surname }) {
     }
   };
 
-  const handleStart = (limit) => {
-    if (!selectedSubject) return alert("Please choose a subject first.");
-    onStartQuiz(selectedSubject, selectedSets, selectedType, limit);
+  const toggleType = (type) => {
+    if (selectedTypes.includes(type)) {
+      setSelectedTypes(selectedTypes.filter(t => t !== type));
+    } else {
+      setSelectedTypes([...selectedTypes, type]);
+    }
   };
 
-  // Heatmap calculation
+  const handleStart = (limit) => {
+    if (!selectedSubject) return alert("Please choose a subject first.");
+    if (selectedTypes.length === 0) return alert("Please select at least one question type (Problem Solving or Elements).");
+    onStartQuiz(selectedSubject, selectedSets, selectedTypes, limit);
+  };
+
   const heatmapData = useMemo(() => {
     if (!stats) return [];
     const data = [];
@@ -468,7 +470,7 @@ function Dashboard({ stats, filterData, onStartQuiz, surname }) {
           <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4">Start a Review Session</h3>
           <div className="space-y-5 mb-6">
             
-            {/* Subject Selector (No 'All' option, default is empty) */}
+            {/* Subject Selector */}
             <div>
               <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Select Subject</label>
               <select 
@@ -518,13 +520,23 @@ function Dashboard({ stats, filterData, onStartQuiz, surname }) {
               )}
             </div>
 
+            {/* Question Type Selector (Multi-Select Chips) */}
             <div>
-              <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Select Question Type</label>
-              <select value={selectedType} onChange={e => setSelectedType(e.target.value)} className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white outline-none">
-                <option value="All">Problem Solving & Elements</option>
-                <option value="Problem Solving">Problem Solving Only</option>
-                <option value="Elements">Elements Only</option>
-              </select>
+              <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Select Question Type(s)</label>
+              <div className="flex flex-wrap gap-2">
+                {['Problem Solving', 'Elements'].map(type => {
+                  const isSelected = selectedTypes.includes(type);
+                  return (
+                    <button 
+                      key={type} 
+                      onClick={() => toggleType(type)} 
+                      className={`px-3 py-1.5 rounded-lg border text-sm font-bold transition-colors ${isSelected ? 'bg-blue-600 border-blue-600 text-white shadow-sm' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-blue-400'}`}
+                    >
+                      {type}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
           </div>
 

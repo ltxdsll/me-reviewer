@@ -37,7 +37,7 @@ export default function App() {
   const [quizResults, setQuizResults] = useState([]);
   const [quizScore, setQuizScore] = useState(0);
 
-  // Filters from DB
+  // Filters from DB (Stores subject, set_name, and question_type correlations)
   const [filterData, setFilterData] = useState([]);
 
   useEffect(() => {
@@ -114,7 +114,8 @@ export default function App() {
   };
 
   const fetchFilters = async () => {
-    const { data } = await supabase.from('questions').select('subject, set_name');
+    // Dynamically fetch subject, set_name, AND question_type to map dependencies
+    const { data } = await supabase.from('questions').select('subject, set_name, question_type');
     if (data) setFilterData(data);
   };
 
@@ -155,7 +156,6 @@ export default function App() {
         query = query.in('set_name', selectedSets);
       }
 
-      // Filter by multi-selected question types
       if (selectedTypes && selectedTypes.length > 0) {
         query = query.in('question_type', selectedTypes);
       }
@@ -367,12 +367,26 @@ export default function App() {
 function Dashboard({ stats, filterData, onStartQuiz, surname }) {
   const [selectedSubject, setSelectedSubject] = useState(''); 
   const [selectedSets, setSelectedSets] = useState([]); 
-  const [selectedTypes, setSelectedTypes] = useState([]); // Multi-select array for Question Types
+  const [selectedTypes, setSelectedTypes] = useState([]);
 
+  // Dynamically calculate available Sets for the chosen Subject
   const availableSets = useMemo(() => {
     if (!selectedSubject || !filterData) return [];
     return [...new Set(filterData.filter(d => d.subject === selectedSubject).map(d => d.set_name).filter(Boolean))].sort();
   }, [selectedSubject, filterData]);
+
+  // Dynamically calculate available Question Types for the chosen Subject & Set(s)
+  const availableTypes = useMemo(() => {
+    if (!selectedSubject || !filterData) return [];
+    let relevantData = filterData.filter(d => d.subject === selectedSubject);
+    
+    // If specific sets are chosen, narrow down the available types
+    if (selectedSets.length > 0) {
+      relevantData = relevantData.filter(d => selectedSets.includes(d.set_name));
+    }
+    
+    return [...new Set(relevantData.map(d => d.question_type).filter(Boolean))].sort();
+  }, [selectedSubject, selectedSets, filterData]);
 
   const toggleSet = (set) => {
     if (selectedSets.includes(set)) {
@@ -392,7 +406,7 @@ function Dashboard({ stats, filterData, onStartQuiz, surname }) {
 
   const handleStart = (limit) => {
     if (!selectedSubject) return alert("Please choose a subject first.");
-    if (selectedTypes.length === 0) return alert("Please select at least one question type (Problem Solving or Elements).");
+    if (selectedTypes.length === 0) return alert("Please select at least one question type (e.g., Problem Solving, Elements).");
     onStartQuiz(selectedSubject, selectedSets, selectedTypes, limit);
   };
 
@@ -475,7 +489,11 @@ function Dashboard({ stats, filterData, onStartQuiz, surname }) {
               <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Select Subject</label>
               <select 
                 value={selectedSubject} 
-                onChange={e => { setSelectedSubject(e.target.value); setSelectedSets([]); }} 
+                onChange={e => { 
+                  setSelectedSubject(e.target.value); 
+                  setSelectedSets([]); 
+                  setSelectedTypes([]); // Auto-reset types when subject changes
+                }} 
                 className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white outline-none"
               >
                 <option value="" disabled>Choose subject</option>
@@ -520,23 +538,33 @@ function Dashboard({ stats, filterData, onStartQuiz, surname }) {
               )}
             </div>
 
-            {/* Question Type Selector (Multi-Select Chips) */}
+            {/* Dynamic Question Type Selector (Multi-Select Chips) */}
             <div>
               <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Select Question Type(s)</label>
-              <div className="flex flex-wrap gap-2">
-                {['Problem Solving', 'Elements'].map(type => {
-                  const isSelected = selectedTypes.includes(type);
-                  return (
-                    <button 
-                      key={type} 
-                      onClick={() => toggleType(type)} 
-                      className={`px-3 py-1.5 rounded-lg border text-sm font-bold transition-colors ${isSelected ? 'bg-blue-600 border-blue-600 text-white shadow-sm' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-blue-400'}`}
-                    >
-                      {type}
-                    </button>
-                  )
-                })}
-              </div>
+              {!selectedSubject ? (
+                <div className="text-sm text-slate-500 italic p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
+                  Please choose a subject first.
+                </div>
+              ) : availableTypes.length === 0 ? (
+                <div className="text-sm text-slate-500 italic p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
+                  No question types available for this selection.
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {availableTypes.map(type => {
+                    const isSelected = selectedTypes.includes(type);
+                    return (
+                      <button 
+                        key={type} 
+                        onClick={() => toggleType(type)} 
+                        className={`px-3 py-1.5 rounded-lg border text-sm font-bold transition-colors ${isSelected ? 'bg-blue-600 border-blue-600 text-white shadow-sm' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-blue-400'}`}
+                      >
+                        {type}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           </div>
 
