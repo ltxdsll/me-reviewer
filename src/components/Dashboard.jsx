@@ -159,7 +159,7 @@ export default function Dashboard({ stats, filterData, onStartQuiz, onStartWeakn
           </div>
 
           <button onClick={() => handleWeaknessStart(30)} className="w-full bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400 font-bold py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-red-100 dark:hover:bg-red-500/20 transition border border-red-200 dark:border-red-500/30 shadow-sm">
-            <Play className="w-5 h-5 fill-current" /> Review Missed Items (30)
+            <Play className="w-5 h-5 fill-current" /> Review Missed Items
           </button>
         </div>
 
