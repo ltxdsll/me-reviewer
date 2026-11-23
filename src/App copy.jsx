@@ -170,6 +170,57 @@ export default function App() {
     }
   };
 
+  // --- NEW: WEAKNESS MODE LOGIC ---
+  const startWeaknessQuiz = async (limit) => {
+    try {
+      // 1. Fetch last 30 study sessions to extract missed items
+      const { data: historyData, error: historyError } = await supabase
+        .from('study_history')
+        .select('details')
+        .eq('user_id', session.user.id)
+        .order('created_at', { ascending: false })
+        .limit(30);
+
+      if (historyError) throw historyError;
+
+      // 2. Filter JSON details to get unique missed question texts
+      const missedTexts = new Set();
+      historyData?.forEach(session => {
+        session.details?.forEach(item => {
+          if (!item.isCorrect) missedTexts.add(item.q);
+        });
+      });
+
+      const missedArray = Array.from(missedTexts);
+      
+      if (missedArray.length === 0) {
+        return alert("Great job! You have no recently missed questions to review.");
+      }
+
+      // 3. Query the 'questions' table for those specific missed texts
+      const { data, error } = await supabase
+        .from('questions')
+        .select('*')
+        .in('question_text', missedArray.slice(0, 100)); // Safely limit array size for Supabase constraints
+
+      if (error) throw error;
+      if (!data || data.length === 0) return alert("Could not sync missed questions.");
+
+      // 4. Randomize and format standard choices
+      const randomized = data.sort(() => Math.random() - 0.5).slice(0, limit).map(q => {
+        const correctMap = { 'A': q.option_a, 'B': q.option_b, 'C': q.option_c, 'D': q.option_d };
+        const correctText = correctMap[String(q.correct_answer).toUpperCase()] || q.option_a;
+        let options = [q.option_a, q.option_b, q.option_c, q.option_d].sort(() => Math.random() - 0.5);
+        return { ...q, choices: options, correct_text: correctText };
+      });
+
+      setQuestions(randomized);
+      setView('quiz');
+    } catch (error) {
+      alert("Error generating weakness mode: " + error.message);
+    }
+  };
+
   const handleQuizComplete = async (finalResults, finalScore) => {
     const totalTimeForQuiz = finalResults.reduce((acc, curr) => acc + curr.timeSpent, 0);
     const newStats = { ...stats };
@@ -312,7 +363,16 @@ export default function App() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 md:px-10 md:pb-10 pt-0 relative flex flex-col">
-          {view === 'dashboard' && activeTab === 'Dashboard' && <Dashboard stats={stats} filterData={filterData} onStartQuiz={startQuiz} surname={session.user.user_metadata?.last_name || ''} />}
+          {/* NOTICE: onStartWeaknessQuiz is now passed to Dashboard */}
+          {view === 'dashboard' && activeTab === 'Dashboard' && (
+            <Dashboard 
+              stats={stats} 
+              filterData={filterData} 
+              onStartQuiz={startQuiz} 
+              onStartWeaknessQuiz={startWeaknessQuiz}
+              surname={session.user.user_metadata?.last_name || ''} 
+            />
+          )}
           {view === 'dashboard' && activeTab === 'Analytics' && <Analytics stats={stats} />}
           {view === 'dashboard' && activeTab === 'Study History' && <StudyHistory userId={session.user.id} />}
           {view === 'dashboard' && activeTab === 'Settings' && <Settings />}
