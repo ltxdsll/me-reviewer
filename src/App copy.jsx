@@ -170,10 +170,9 @@ export default function App() {
     }
   };
 
-  // --- NEW: WEAKNESS MODE LOGIC ---
-  const startWeaknessQuiz = async (limit) => {
+  // UPDATED: Now filters history by Subject before generating the quiz
+  const startWeaknessQuiz = async (selectedSubject, limit) => {
     try {
-      // 1. Fetch last 30 study sessions to extract missed items
       const { data: historyData, error: historyError } = await supabase
         .from('study_history')
         .select('details')
@@ -183,30 +182,31 @@ export default function App() {
 
       if (historyError) throw historyError;
 
-      // 2. Filter JSON details to get unique missed question texts
       const missedTexts = new Set();
       historyData?.forEach(session => {
         session.details?.forEach(item => {
-          if (!item.isCorrect) missedTexts.add(item.q);
+          // Only pull missed items that match the currently selected subject
+          if (!item.isCorrect && item.subject === selectedSubject) {
+            missedTexts.add(item.q);
+          }
         });
       });
 
       const missedArray = Array.from(missedTexts);
       
       if (missedArray.length === 0) {
-        return alert("Great job! You have no recently missed questions to review.");
+        return alert(`Great job! You have no recently missed questions for ${selectedSubject}.`);
       }
 
-      // 3. Query the 'questions' table for those specific missed texts
       const { data, error } = await supabase
         .from('questions')
         .select('*')
-        .in('question_text', missedArray.slice(0, 100)); // Safely limit array size for Supabase constraints
+        .eq('subject', selectedSubject)
+        .in('question_text', missedArray.slice(0, 100));
 
       if (error) throw error;
-      if (!data || data.length === 0) return alert("Could not sync missed questions.");
+      if (!data || data.length === 0) return alert(`Could not sync missed questions for ${selectedSubject}.`);
 
-      // 4. Randomize and format standard choices
       const randomized = data.sort(() => Math.random() - 0.5).slice(0, limit).map(q => {
         const correctMap = { 'A': q.option_a, 'B': q.option_b, 'C': q.option_c, 'D': q.option_d };
         const correctText = correctMap[String(q.correct_answer).toUpperCase()] || q.option_a;
@@ -363,7 +363,6 @@ export default function App() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 md:px-10 md:pb-10 pt-0 relative flex flex-col">
-          {/* NOTICE: onStartWeaknessQuiz is now passed to Dashboard */}
           {view === 'dashboard' && activeTab === 'Dashboard' && (
             <Dashboard 
               stats={stats} 
