@@ -8,9 +8,13 @@ const formatTime = (seconds) => {
 };
 
 export default function Dashboard({ stats, filterData, onStartQuiz, onStartWeaknessQuiz, surname }) {
+  // Main Quiz Setup State
   const [selectedSubject, setSelectedSubject] = useState(''); 
   const [selectedSets, setSelectedSets] = useState([]); 
   const [selectedTypes, setSelectedTypes] = useState([]);
+  
+  // Dedicated Weakness Mode State
+  const [weaknessSubject, setWeaknessSubject] = useState('');
 
   const availableSets = useMemo(() => {
     if (!selectedSubject || !filterData) return [];
@@ -56,10 +60,9 @@ export default function Dashboard({ stats, filterData, onStartQuiz, onStartWeakn
     onStartQuiz(selectedSubject, selectedSets, selectedTypes, limit);
   };
 
-  // NEW: Ensures a subject is chosen before launching Weakness Mode
   const handleWeaknessStart = (limit) => {
-    if (!selectedSubject) return alert("Please choose a Subject below first to review its missed items.");
-    onStartWeaknessQuiz(selectedSubject, limit);
+    if (!weaknessSubject) return alert("Please choose a subject from the Weakness Mode dropdown first.");
+    onStartWeaknessQuiz(weaknessSubject, limit);
   };
 
   const heatmapData = useMemo(() => {
@@ -139,8 +142,22 @@ export default function Dashboard({ stats, filterData, onStartQuiz, onStartWeakn
             <AlertCircle className="w-5 h-5 text-red-500" /> Weakness Mode
           </h3>
           <p className="text-sm text-slate-500 dark:text-slate-400 mb-5 pr-10">
-            Choose a subject below, then re-test yourself on its recently missed questions.
+            Re-test yourself on recently missed questions to build true mastery.
           </p>
+          
+          <div className="mb-4">
+            <select 
+              value={weaknessSubject} 
+              onChange={e => setWeaknessSubject(e.target.value)} 
+              className="w-full p-2.5 rounded-lg border border-red-200 dark:border-red-500/30 bg-white dark:bg-slate-800 text-slate-800 dark:text-white outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all"
+            >
+              <option value="" disabled>Choose subject for review</option>
+              <option value="PIPE">PIPE</option>
+              <option value="MDSP">MDSP</option>
+              <option value="MESL">MESL</option>
+            </select>
+          </div>
+
           <button onClick={() => handleWeaknessStart(30)} className="w-full bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400 font-bold py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-red-100 dark:hover:bg-red-500/20 transition border border-red-200 dark:border-red-500/30 shadow-sm">
             <Play className="w-5 h-5 fill-current" /> Review Missed Items (30)
           </button>
