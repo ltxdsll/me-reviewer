@@ -3,7 +3,7 @@
 // ==========================================
 
 import React, { useState, useMemo } from 'react';
-import { Play, Clock, CheckCircle, BookOpen, RotateCcw } from 'lucide-react';
+import { Play, Clock, CheckCircle, BookOpen, RotateCcw, AlertCircle, Activity } from 'lucide-react';
 
 const formatTime = (seconds) => {
   const m = Math.floor(seconds / 60);
@@ -11,7 +11,7 @@ const formatTime = (seconds) => {
   return `${m}:${s < 10 ? '0' : ''}${s}`;
 };
 
-export default function Dashboard({ stats, filterData, onStartQuiz, surname }) {
+export default function Dashboard({ stats, filterData, onStartQuiz, onStartWeaknessQuiz, surname }) {
   const [selectedSubject, setSelectedSubject] = useState(''); 
   const [selectedSets, setSelectedSets] = useState([]); 
   const [selectedTypes, setSelectedTypes] = useState([]);
@@ -127,6 +127,24 @@ export default function Dashboard({ stats, filterData, onStartQuiz, surname }) {
       </div>
 
       <div className="md:col-span-5 lg:col-span-4 flex flex-col h-max">
+        
+        {/* WEAKNESS MODE SECTION */}
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border-2 border-red-500/20 shadow-sm transition-colors mb-6 relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
+            <Activity className="w-16 h-16 text-red-500" />
+          </div>
+          <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-2 flex items-center gap-2">
+            <AlertCircle className="w-5 h-5 text-red-500" /> Weakness Mode
+          </h3>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mb-5 pr-10">
+            Spaced repetition: Re-test yourself on questions you recently got wrong to build true mastery.
+          </p>
+          <button onClick={() => onStartWeaknessQuiz(30)} className="w-full bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400 font-bold py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-red-100 dark:hover:bg-red-500/20 transition border border-red-200 dark:border-red-500/30 shadow-sm">
+            <Play className="w-5 h-5 fill-current" /> Review Missed Items (30)
+          </button>
+        </div>
+
+        {/* STANDARD QUIZ SETUP SECTION */}
         <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm transition-colors">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-bold text-slate-800 dark:text-white">Start a Review Session</h3>
