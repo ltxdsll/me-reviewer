@@ -101,9 +101,10 @@ export default function App() {
   };
 
   const fetchFilters = async () => {
-    const { data } = await supabase.from('questions').select('subject, set_name, question_type');
-    if (data) setFilterData(data);
-  };
+  const { data, error } = await supabase.from('unique_filters').select('*');
+  if (error) console.error("Error fetching filters:", error);
+  if (data) setFilterData(data);
+};
 
   const handleLogin = async (e) => {
     e.preventDefault();
