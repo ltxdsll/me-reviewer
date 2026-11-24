@@ -133,23 +133,28 @@ export default function App() {
 
   const startQuiz = async (selectedSubject, selectedSets, selectedTypes, limit) => {
     try {
-      let query = supabase.from('questions').select('*').eq('subject', selectedSubject);
-      if (selectedSets && selectedSets.length > 0) query = query.in('set_name', selectedSets);
-      if (selectedTypes && selectedTypes.length > 0) query = query.in('question_type', selectedTypes);
-      
-      const { data, error } = await query;
+      const { data, error } = await supabase.rpc('get_random_questions', {
+        p_subject: selectedSubject,
+        p_sets: selectedSets && selectedSets.length > 0 ? selectedSets : null,
+        p_types: selectedTypes && selectedTypes.length > 0 ? selectedTypes : null,
+        p_limit: limit
+      });
+
       if (error) throw error;
       if (!data || data.length === 0) return alert("No questions found for these specific filters.");
 
-      const randomized = data.sort(() => Math.random() - 0.5).slice(0, limit).map(q => {
+      const formatted = data.map(q => {
         const correctMap = { 'A': q.option_a, 'B': q.option_b, 'C': q.option_c, 'D': q.option_d };
         const correctText = correctMap[String(q.correct_answer).toUpperCase()] || q.option_a;
-        let options = [q.option_a, q.option_b, q.option_c, q.option_d].sort(() => Math.random() - 0.5);
+        const options = [q.option_a, q.option_b, q.option_c, q.option_d].sort(() => Math.random() - 0.5);
         return { ...q, choices: options, correct_text: correctText };
       });
-      setQuestions(randomized);
+
+      setQuestions(formatted);
       setView('quiz');
-    } catch (error) { alert("Error generating quiz: " + error.message); }
+    } catch (error) {
+      alert("Error generating quiz: " + error.message);
+    }
   };
 
   const startWeaknessQuiz = async (selectedSubject, limit) => {
