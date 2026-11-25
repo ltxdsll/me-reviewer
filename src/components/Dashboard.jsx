@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { supabase } from '../supabaseClient';
 import {
   Play,
   Clock,
@@ -8,15 +9,28 @@ import {
   AlertCircle,
   Layers,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Search,
+  X
 } from 'lucide-react';
 
 const SUBJECTS = ['PIPE', 'MDSP', 'MESL'];
 const WEEKDAYS = ['Su', 'M', 'Tu', 'W', 'Th', 'F', 'Sa'];
-const MOBILE_MODES = [
-  { id: 'review', label: 'Review', activeText: 'text-blue-600 dark:text-blue-400' },
+
+// Updated Themes: Review = Green (Emerald), Weakness = Red, Flashcards = Blue
+const MODES = [
+  { id: 'review', label: 'Review', activeText: 'text-emerald-600 dark:text-emerald-400' },
   { id: 'weakness', label: 'Weakness', activeText: 'text-red-600 dark:text-red-400' },
-  { id: 'flashcards', label: 'Flashcards', activeText: 'text-indigo-600 dark:text-indigo-400' }
+  { id: 'flashcards', label: 'Flashcards', activeText: 'text-blue-600 dark:text-blue-400' }
+];
+
+// Classic GitHub Contribution Heatmap Palette (Light & Dark)
+const GITHUB_LEVEL_CLASSES = [
+  'bg-[#ebedf0] dark:bg-[#1e293b]',
+  'bg-[#9be9a8] dark:bg-[#0e4429]',
+  'bg-[#40c463] dark:bg-[#006d32]',
+  'bg-[#30a14e] dark:bg-[#26a641]',
+  'bg-[#216e39] dark:bg-[#39d353]'
 ];
 
 const formatTime = (seconds) => {
@@ -29,52 +43,169 @@ const toLocalDateStr = (year, monthIndex, day) => {
   return `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 };
 
-// Reusable Filter Group for Review Mode & Flashcard Mode
+function buildMonthCalendar(baseDate, historyMap) {
+  const year = baseDate.getFullYear();
+  const month = baseDate.getMonth();
+  const firstDayIndex = new Date(year, month, 1).getDay(); // 0 (Su) - 6 (Sa)
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const today = new Date();
+  const todayStr = toLocalDateStr(today.getFullYear(), today.getMonth(), today.getDate());
+
+  const shortMonth = baseDate.toLocaleDateString('en-US', { month: 'short' });
+  const shortYear = String(year).slice(-2);
+
+  const cells = [];
+  for (let i = 0; i < firstDayIndex; i++) {
+    cells.push({ empty: true, key: `empty-${year}-${month}-${i}` });
+  }
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dateStr = toLocalDateStr(year, month, day);
+    const count = historyMap[dateStr] || 0;
+    let level = 0;
+    if (count > 0 && count <= 10) level = 1;
+    else if (count > 10 && count <= 30) level = 2;
+    else if (count > 30 && count <= 60) level = 3;
+    else if (count > 60) level = 4;
+
+    cells.push({
+      empty: false,
+      key: dateStr,
+      day,
+      dateStr,
+      count,
+      level,
+      isToday: dateStr === todayStr
+    });
+  }
+
+  return {
+    label: `${shortMonth} ${shortYear}`,
+    cells
+  };
+}
+
+// Hook for Live Matching Question Count (Instant via item_count, with DB head-count fallback)
+function useMatchingQuestionCount(subject, sets, types, filterData) {
+  const hasPrecomputedCounts = useMemo(
+    () => Array.isArray(filterData) && filterData.some((d) => typeof d.item_count === 'number'),
+    [filterData]
+  );
+
+  const instantCount = useMemo(() => {
+    if (!hasPrecomputedCounts || !subject || types.length === 0) return null;
+    return filterData
+      .filter((d) => {
+        const matchSubj = d.subject?.trim() === subject;
+        const matchSet = sets.length === 0 || sets.includes(d.set_name?.trim());
+        const matchType = types.includes(d.question_type?.trim());
+        return matchSubj && matchSet && matchType;
+      })
+      .reduce((sum, d) => sum + (Number(d.item_count) || 0), 0);
+  }, [hasPrecomputedCounts, subject, sets, types, filterData]);
+
+  const [fallbackCount, setFallbackCount] = useState(null);
+
+  useEffect(() => {
+    if (hasPrecomputedCounts) return;
+    if (!subject || types.length === 0) {
+      setFallbackCount(null);
+      return;
+    }
+
+    let cancelled = false;
+    async function fetchExactCount() {
+      let query = supabase
+        .from('questions')
+        .select('*', { count: 'exact', head: true })
+        .eq('subject', subject)
+        .in('question_type', types);
+
+      if (sets.length > 0) {
+        query = query.in('set_name', sets);
+      }
+
+      const { count } = await query;
+      if (!cancelled) setFallbackCount(count ?? 0);
+    }
+
+    fetchExactCount();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasPrecomputedCounts, subject, sets, types]);
+
+  if (!subject || types.length === 0) return null;
+  return hasPrecomputedCounts ? instantCount : fallbackCount;
+}
+
+// Reusable Filter Group for Review Mode (Emerald) & Flashcard Mode (Blue)
 function ModeFilterSelectors({
   subject,
   onSelectSubject,
   sets,
   onToggleSet,
   onSelectAllSets,
+  setSearch,
+  onSetSearchChange,
   types,
   onToggleType,
   filterData,
-  accentColor = 'blue'
+  theme = 'emerald'
 }) {
   const availableSets = useMemo(() => {
     if (!subject || !filterData) return [];
     return [
       ...new Set(
         filterData
-          .filter((d) => d.subject === subject)
-          .map((d) => d.set_name)
+          .filter((d) => d.subject?.trim() === subject)
+          .map((d) => d.set_name?.trim())
           .filter(Boolean)
       )
     ].sort();
   }, [subject, filterData]);
 
+  const filteredSets = useMemo(() => {
+    const q = setSearch.trim().toLowerCase();
+    if (!q) return availableSets;
+    return availableSets.filter((s) => s.toLowerCase().includes(q));
+  }, [availableSets, setSearch]);
+
   const availableTypes = useMemo(() => {
     if (!subject || !filterData) return [];
-    let relevant = filterData.filter((d) => d.subject === subject);
+    let relevant = filterData.filter((d) => d.subject?.trim() === subject);
     if (sets.length > 0) {
-      relevant = relevant.filter((d) => sets.includes(d.set_name));
+      relevant = relevant.filter((d) => sets.includes(d.set_name?.trim()));
     }
-    return [...new Set(relevant.map((d) => d.question_type).filter(Boolean))].sort();
+    return [...new Set(relevant.map((d) => d.question_type?.trim()).filter(Boolean))].sort();
   }, [subject, sets, filterData]);
 
   const activeChipClass =
-    accentColor === 'indigo'
-      ? 'bg-indigo-600 border-indigo-600 text-white shadow-xs'
-      : 'bg-blue-600 border-blue-600 text-white shadow-xs';
+    theme === 'emerald'
+      ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm'
+      : 'bg-blue-600 border-blue-600 text-white shadow-sm';
+
+  const searchFocusClass =
+    theme === 'emerald'
+      ? 'focus:border-emerald-500 focus:ring-emerald-500/20'
+      : 'focus:border-blue-500 focus:ring-blue-500/20';
 
   const inactiveChipClass =
     'bg-white dark:bg-slate-800/90 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-slate-400 dark:hover:border-slate-500';
 
+  const handleSearchKeyDown = (e) => {
+    if (e.key === 'Enter' && filteredSets.length === 1) {
+      e.preventDefault();
+      onToggleSet(filteredSets[0]);
+    }
+  };
+
   return (
-    <div className="space-y-4 mb-5">
+    <div className="space-y-3.5 mb-4">
       {/* 1. Single-Select Subject Chips */}
       <div>
-        <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
+        <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
           Select Subject
         </label>
         <div className="grid grid-cols-3 gap-2">
@@ -96,16 +227,20 @@ function ModeFilterSelectors({
         </div>
       </div>
 
-      {/* 2. Multi-Select Sets with Fixed Scrollable Viewport (Default: All) */}
+      {/* 2. Multi-Select Sets with Inline Search + Expanded Mobile Scroll Viewport */}
       <div>
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center justify-between mb-1.5">
           <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             Select Set(s)
           </label>
           {subject && availableSets.length > 0 && (
-            <span className="text-[11px] font-semibold text-slate-400">
-              {sets.length === 0 ? 'All selected' : `${sets.length} selected`}
-            </span>
+            <button
+              type="button"
+              onClick={onSelectAllSets}
+              className="text-[11px] font-semibold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition"
+            >
+              {sets.length === 0 ? 'All selected' : `${sets.length} selected • Clear`}
+            </button>
           )}
         </div>
 
@@ -118,38 +253,73 @@ function ModeFilterSelectors({
             No sets available for {subject}
           </div>
         ) : (
-          <div className="max-h-32 overflow-y-auto pr-1 p-2 rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/80 flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              onClick={onSelectAllSets}
-              className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition-all ${
-                sets.length === 0 ? activeChipClass : inactiveChipClass
-              }`}
-            >
-              All
-            </button>
-            {availableSets.map((s) => {
-              const isSelected = sets.includes(s);
-              return (
+          <div className="rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/80 p-2 space-y-2">
+            {/* Inline Set Search Input (16px on mobile prevents iOS Safari auto-zoom) */}
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={setSearch}
+                onChange={(e) => onSetSearchChange(e.target.value)}
+                onKeyDown={handleSearchKeyDown}
+                placeholder={`Filter ${availableSets.length} sets...`}
+                className={`w-full pl-8 pr-7 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-base sm:text-xs text-slate-700 dark:text-slate-200 placeholder:text-slate-400 outline-none focus:ring-2 transition ${searchFocusClass}`}
+              />
+              {setSearch && (
                 <button
-                  key={s}
                   type="button"
-                  onClick={() => onToggleSet(s)}
+                  onClick={() => onSetSearchChange('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  aria-label="Clear set search"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Expanded Mobile Viewport calibrated so full Review Mode fits above the fold */}
+            <div className="max-h-[clamp(9.5rem,22dvh,13.5rem)] md:max-h-48 overflow-y-auto pr-1 flex flex-wrap gap-1.5 content-start">
+              {!setSearch.trim() && (
+                <button
+                  type="button"
+                  onClick={onSelectAllSets}
                   className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition-all ${
-                    isSelected ? activeChipClass : inactiveChipClass
+                    sets.length === 0 ? activeChipClass : inactiveChipClass
                   }`}
                 >
-                  {s}
+                  All
                 </button>
-              );
-            })}
+              )}
+
+              {filteredSets.length === 0 ? (
+                <div className="w-full py-3 text-center text-xs text-slate-400 italic">
+                  No sets matching "{setSearch}"
+                </div>
+              ) : (
+                filteredSets.map((s) => {
+                  const isSelected = sets.includes(s);
+                  return (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => onToggleSet(s)}
+                      className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition-all ${
+                        isSelected ? activeChipClass : inactiveChipClass
+                      }`}
+                    >
+                      {s}
+                    </button>
+                  );
+                })
+              )}
+            </div>
           </div>
         )}
       </div>
 
       {/* 3. Multi-Select Question Types */}
       <div>
-        <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
+        <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
           Select Question Type(s)
         </label>
         {!subject ? (
@@ -184,6 +354,56 @@ function ModeFilterSelectors({
   );
 }
 
+// Compact GitHub-Style Monthly Heatmap Sub-Grid
+function CompactMonthHeatmap({ monthData, onSelectCell, showMonthSubheader = false }) {
+  return (
+    <div className="flex flex-col items-center">
+      {showMonthSubheader && (
+        <div className="w-full text-xs font-bold text-slate-600 dark:text-slate-300 mb-2 text-left">
+          {monthData.label}
+        </div>
+      )}
+
+      {/* 7-Column Weekday Headers */}
+      <div className="grid grid-cols-7 gap-1.5 mb-1.5 text-center">
+        {WEEKDAYS.map((dayName) => (
+          <div
+            key={dayName}
+            className="w-7 sm:w-5 text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500"
+          >
+            {dayName}
+          </div>
+        ))}
+      </div>
+
+      {/* GitHub Heatmap Tiles */}
+      <div className="grid grid-cols-7 gap-1.5">
+        {monthData.cells.map((cell) => {
+          if (cell.empty) {
+            return <div key={cell.key} className="w-7 h-7 sm:w-5 sm:h-5" />;
+          }
+          return (
+            <button
+              key={cell.key}
+              type="button"
+              onClick={() => onSelectCell(cell)}
+              title={`${cell.dateStr}: ${cell.count} items`}
+              aria-label={`${cell.dateStr}: ${cell.count} items`}
+              className={`w-7 h-7 sm:w-5 sm:h-5 rounded-[3px] transition-transform hover:scale-110 active:scale-95 ${
+                GITHUB_LEVEL_CLASSES[cell.level]
+              } ${
+                cell.isToday
+                  ? 'ring-2 ring-slate-800 dark:ring-white ring-offset-1 dark:ring-offset-slate-900'
+                  : ''
+              }`}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard({
   stats,
   filterData,
@@ -192,23 +412,26 @@ export default function Dashboard({
   onStartFlashcards,
   surname
 }) {
-  // Mobile-Exclusive Mode Switcher State ('review' | 'weakness' | 'flashcards')
-  const [mobileMode, setMobileMode] = useState('review');
+  // Unified Mode Switcher State (Active on BOTH Mobile & Desktop)
+  const [activeMode, setActiveMode] = useState('review');
 
-  // 1. Review Mode State
+  // 1. Review Mode State (Emerald Theme)
   const [reviewSubject, setReviewSubject] = useState('');
   const [reviewSets, setReviewSets] = useState([]);
+  const [reviewSetSearch, setReviewSetSearch] = useState('');
   const [reviewTypes, setReviewTypes] = useState([]);
 
-  // 2. Weakness Mode State
+  // 2. Weakness Mode State (Red Theme)
   const [weaknessSubject, setWeaknessSubject] = useState('');
+  const [missedCountsBySubject, setMissedCountsBySubject] = useState(null);
 
-  // 3. Flashcard Mode State
+  // 3. Flashcard Mode State (Blue Theme)
   const [fcSubject, setFcSubject] = useState('');
   const [fcSets, setFcSets] = useState([]);
+  const [fcSetSearch, setFcSetSearch] = useState('');
   const [fcTypes, setFcTypes] = useState([]);
 
-  // 4. Monthly Calendar Heatmap State & Touch Swipe Ref
+  // 4. Calendar Heatmap State & Touch Swipe Ref
   const [calendarDate, setCalendarDate] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -216,10 +439,59 @@ export default function Dashboard({
   const [selectedDayInfo, setSelectedDayInfo] = useState(null);
   const touchStartX = useRef(null);
 
+  // Live Matching Question Counts for Review & Flashcards
+  const reviewMatchCount = useMatchingQuestionCount(
+    reviewSubject,
+    reviewSets,
+    reviewTypes,
+    filterData
+  );
+  const fcMatchCount = useMatchingQuestionCount(fcSubject, fcSets, fcTypes, filterData);
+
+  // Live Missed Item Counts per Subject for Weakness Mode
+  useEffect(() => {
+    let cancelled = false;
+    async function loadMissedCounts() {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const uid = sessionData?.session?.user?.id;
+      if (!uid) return;
+
+      const { data } = await supabase
+        .from('study_history')
+        .select('details')
+        .eq('user_id', uid)
+        .order('created_at', { ascending: false })
+        .limit(30);
+
+      if (cancelled || !data) return;
+
+      const setsMap = { PIPE: new Set(), MDSP: new Set(), MESL: new Set() };
+      data.forEach((row) => {
+        row.details?.forEach((item) => {
+          if (!item.isCorrect && setsMap[item.subject]) {
+            setsMap[item.subject].add(item.q);
+          }
+        });
+      });
+
+      setMissedCountsBySubject({
+        PIPE: setsMap.PIPE.size,
+        MDSP: setsMap.MDSP.size,
+        MESL: setsMap.MESL.size
+      });
+    }
+
+    loadMissedCounts();
+    return () => {
+      cancelled = true;
+    };
+  }, [stats?.totalQuizzes]);
+
   // Review Mode Handlers
   const handleSelectReviewSubject = (subj) => {
     setReviewSubject(subj);
     setReviewSets([]);
+    setReviewSetSearch('');
     setReviewTypes([]);
   };
 
@@ -238,6 +510,7 @@ export default function Dashboard({
   const resetReviewMode = () => {
     setReviewSubject('');
     setReviewSets([]);
+    setReviewSetSearch('');
     setReviewTypes([]);
   };
 
@@ -255,7 +528,7 @@ export default function Dashboard({
   };
 
   const handleStartWeakness = () => {
-    if (!weaknessSubject) return alert('Please choose a subject first.');
+    if (!weaknessSubject) return alert('Please select a subject first.');
     onStartWeaknessQuiz(weaknessSubject, 30);
   };
 
@@ -263,6 +536,7 @@ export default function Dashboard({
   const handleSelectFcSubject = (subj) => {
     setFcSubject(subj);
     setFcSets([]);
+    setFcSetSearch('');
     setFcTypes([]);
   };
 
@@ -281,6 +555,7 @@ export default function Dashboard({
   const resetFlashcardMode = () => {
     setFcSubject('');
     setFcSets([]);
+    setFcSetSearch('');
     setFcTypes([]);
   };
 
@@ -292,7 +567,7 @@ export default function Dashboard({
     onStartFlashcards(fcSubject, fcSets, fcTypes, 100);
   };
 
-  // Monthly Calendar Calculations
+  // Monthly Calendar Navigation & Swipe
   const changeMonth = (offset) => {
     setCalendarDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + offset, 1));
     setSelectedDayInfo(null);
@@ -311,48 +586,14 @@ export default function Dashboard({
     touchStartX.current = null;
   };
 
-  const calendarGrid = useMemo(() => {
-    const year = calendarDate.getFullYear();
-    const month = calendarDate.getMonth();
-    const firstDayIndex = new Date(year, month, 1).getDay();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const historyMap = stats?.history || {};
-
-    const today = new Date();
-    const todayStr = toLocalDateStr(today.getFullYear(), today.getMonth(), today.getDate());
-
-    const cells = [];
-    for (let i = 0; i < firstDayIndex; i++) {
-      cells.push({ empty: true, key: `empty-${i}` });
-    }
-
-    for (let day = 1; day <= daysInMonth; day++) {
-      const dateStr = toLocalDateStr(year, month, day);
-      const count = historyMap[dateStr] || 0;
-      let level = 0;
-      if (count > 0 && count <= 10) level = 1;
-      else if (count > 10 && count <= 30) level = 2;
-      else if (count > 30 && count <= 60) level = 3;
-      else if (count > 60) level = 4;
-
-      cells.push({
-        empty: false,
-        key: dateStr,
-        day,
-        dateStr,
-        count,
-        level,
-        isToday: dateStr === todayStr
-      });
-    }
-    return cells;
+  const prevMonthData = useMemo(() => {
+    const prevDate = new Date(calendarDate.getFullYear(), calendarDate.getMonth() - 1, 1);
+    return buildMonthCalendar(prevDate, stats?.history || {});
   }, [calendarDate, stats]);
 
-  const monthYearLabel = useMemo(() => {
-    const shortMonth = calendarDate.toLocaleDateString('en-US', { month: 'short' });
-    const shortYear = String(calendarDate.getFullYear()).slice(-2);
-    return `${shortMonth} ${shortYear}`;
-  }, [calendarDate]);
+  const currentMonthData = useMemo(() => {
+    return buildMonthCalendar(calendarDate, stats?.history || {});
+  }, [calendarDate, stats]);
 
   if (!stats) return null;
 
@@ -364,6 +605,10 @@ export default function Dashboard({
     stats.totalQuestions > 0
       ? Math.round(stats.totalTimeSpent / stats.totalQuestions)
       : 0;
+
+  const activeModeIndex = MODES.findIndex((m) => m.id === activeMode);
+  const weaknessMatchCount =
+    weaknessSubject && missedCountsBySubject ? missedCountsBySubject[weaknessSubject] : null;
 
   const renderSubjectCard = (subjectName) => {
     const s = stats.subjects[subjectName];
@@ -384,7 +629,7 @@ export default function Dashboard({
     return (
       <div
         key={subjectName}
-        className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs"
+        className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm"
       >
         <h4 className="font-bold text-slate-800 dark:text-white mb-3 flex items-center justify-between">
           {subjectName}
@@ -422,77 +667,67 @@ export default function Dashboard({
     );
   };
 
-  const levelStyles = [
-    'bg-slate-100 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400',
-    'bg-emerald-200 dark:bg-emerald-950 text-emerald-900 dark:text-emerald-300',
-    'bg-emerald-400 dark:bg-emerald-800 text-emerald-950 dark:text-emerald-100',
-    'bg-emerald-500 dark:bg-emerald-600 text-white',
-    'bg-emerald-700 dark:bg-emerald-500 text-white font-black'
-  ];
-
-  const activeMobileModeIndex = MOBILE_MODES.findIndex((m) => m.id === mobileMode);
-
   return (
-    <div className="flex flex-col md:grid md:grid-cols-12 gap-4 md:gap-8 max-w-6xl mx-auto animate-in fade-in duration-500 w-full pb-8">
+    <div className="flex flex-col md:grid md:grid-cols-12 gap-3.5 md:gap-8 max-w-6xl mx-auto animate-in fade-in duration-500 w-full pb-8">
       {/* 1. GREETING */}
-      <div className="md:col-span-12 pt-2">
+      <div className="md:col-span-12 pt-1 md:pt-2">
         <h1 className="font-bold">
-          <div className="text-xl md:text-2xl text-slate-500 dark:text-slate-400 font-medium">
+          <div className="text-lg md:text-2xl text-slate-500 dark:text-slate-400 font-medium">
             Welcome back,
           </div>
-          <div className="text-3xl md:text-5xl mt-1 text-slate-800 dark:text-white font-black tracking-tight">
+          <div className="text-2xl sm:text-3xl md:text-5xl mt-0.5 text-slate-800 dark:text-white font-black tracking-tight">
             Engr. {surname}!
           </div>
         </h1>
       </div>
 
-      {/* MOBILE-EXCLUSIVE UNIFIED MODE SWITCHER (Hidden on Desktop md+) */}
-      <div className="md:hidden bg-slate-200/75 dark:bg-slate-800/90 p-1 rounded-2xl border border-slate-200/80 dark:border-slate-700/80">
-        <div className="relative grid grid-cols-3">
-          {/* Smoothly Sliding Active Pill */}
-          <div
-            className="absolute inset-y-0 left-0 w-1/3 bg-white dark:bg-slate-900 rounded-xl shadow-xs transition-transform duration-300 ease-out pointer-events-none"
-            style={{ transform: `translateX(${activeMobileModeIndex * 100}%)` }}
-          />
-          {MOBILE_MODES.map((mode) => {
-            const isActive = mobileMode === mode.id;
-            return (
-              <button
-                key={mode.id}
-                type="button"
-                onClick={() => setMobileMode(mode.id)}
-                className={`relative z-10 py-2.5 text-xs font-extrabold tracking-wide rounded-xl transition-colors duration-200 ${
-                  isActive
-                    ? mode.activeText
-                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
-                }`}
-              >
-                {mode.label}
-              </button>
-            );
-          })}
+      {/* 2. LEFT COLUMN: Unified Mode Switcher (Mobile + Desktop) + Active Mode Card */}
+      <div className="md:col-span-5 lg:col-span-4 flex flex-col gap-3.5 h-max">
+        {/* UNIFIED MODE SWITCHER TABS (Mobile & Desktop) */}
+        <div className="bg-slate-200/75 dark:bg-slate-800/90 p-1 rounded-2xl border border-slate-200/80 dark:border-slate-700/80">
+          <div className="relative grid grid-cols-3">
+            <div
+              className="absolute inset-y-0 left-0 w-1/3 bg-white dark:bg-slate-900 rounded-xl shadow-sm transition-transform duration-300 ease-out pointer-events-none"
+              style={{ transform: `translateX(${activeModeIndex * 100}%)` }}
+            />
+            {MODES.map((mode) => {
+              const isActive = activeMode === mode.id;
+              return (
+                <button
+                  key={mode.id}
+                  type="button"
+                  onClick={() => setActiveMode(mode.id)}
+                  className={`relative z-10 py-2.5 text-xs font-extrabold tracking-wide rounded-xl transition-colors duration-200 ${
+                    isActive
+                      ? mode.activeText
+                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                  }`}
+                >
+                  {mode.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
 
-      {/* 2. LEFT COLUMN: Single Active Card on Mobile | Stacked Cards on Desktop */}
-      <div className="md:col-span-5 lg:col-span-4 flex flex-col gap-5 h-max">
-        {/* CARD 1: REVIEW MODE */}
-        <div
-          className={
-            mobileMode === 'review'
-              ? 'block animate-in fade-in slide-in-from-bottom-2 duration-300'
-              : 'hidden md:block'
-          }
-        >
-          <div className="bg-white dark:bg-slate-900 p-5 sm:p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs transition-colors">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-extrabold text-slate-800 dark:text-white tracking-tight">
-                Review Mode
-              </h3>
+        {/* MODE 1: REVIEW MODE (Green / Emerald Theme) */}
+        {activeMode === 'review' && (
+          <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-2xl border border-emerald-200/80 dark:border-emerald-500/25 shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="flex items-center justify-between gap-2 mb-3.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-lg font-extrabold text-slate-800 dark:text-white tracking-tight">
+                  Review Mode
+                </h3>
+                {reviewMatchCount !== null && (
+                  <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30 animate-in fade-in duration-200">
+                    {reviewMatchCount.toLocaleString()} {reviewMatchCount === 1 ? 'item' : 'items'}
+                  </span>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={resetReviewMode}
-                className="flex items-center gap-1 text-xs font-bold text-slate-400 hover:text-slate-800 dark:hover:text-white transition"
+                className="flex items-center gap-1 text-xs font-bold text-slate-400 hover:text-slate-800 dark:hover:text-white transition shrink-0"
               >
                 <RotateCcw className="w-3.5 h-3.5" /> Reset
               </button>
@@ -504,108 +739,128 @@ export default function Dashboard({
               sets={reviewSets}
               onToggleSet={toggleReviewSet}
               onSelectAllSets={() => setReviewSets([])}
+              setSearch={reviewSetSearch}
+              onSetSearchChange={setReviewSetSearch}
               types={reviewTypes}
               onToggleType={toggleReviewType}
               filterData={filterData}
-              accentColor="blue"
+              theme="emerald"
             />
 
-            <div className="flex flex-col gap-2.5">
+            <div className="flex flex-col gap-2">
               <button
                 type="button"
+                disabled={reviewMatchCount === 0}
                 onClick={() => handleStartReview(9999)}
-                className="w-full bg-slate-900 dark:bg-blue-600 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-slate-800 dark:hover:bg-blue-700 transition shadow-xs active:scale-[0.99]"
+                className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold py-2.5 sm:py-3 rounded-xl flex items-center justify-center gap-2 transition shadow-sm active:scale-[0.99]"
               >
-                <Play className="w-4 h-4 fill-current" /> Start
+                <Play className="w-4 h-4 fill-current" />
+                <span>
+                  {reviewMatchCount !== null && reviewMatchCount > 0
+                    ? `Start (${Math.min(reviewMatchCount, 1000).toLocaleString()})`
+                    : 'Start'}
+                </span>
               </button>
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
+                  disabled={reviewMatchCount === 0}
                   onClick={() => handleStartReview(10)}
-                  className="w-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold py-2.5 px-3 rounded-xl text-xs sm:text-sm hover:bg-slate-200 dark:hover:bg-slate-700 transition border border-slate-200/80 dark:border-slate-700"
+                  className="w-full bg-emerald-50/70 dark:bg-slate-800 text-emerald-800 dark:text-slate-200 font-bold py-2.5 px-3 rounded-xl text-xs sm:text-sm hover:bg-emerald-100 dark:hover:bg-slate-700 disabled:opacity-50 transition border border-emerald-200/70 dark:border-slate-700"
                 >
                   Quick Review (10)
                 </button>
                 <button
                   type="button"
+                  disabled={reviewMatchCount === 0}
                   onClick={() => handleStartReview(100)}
-                  className="w-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold py-2.5 px-3 rounded-xl text-xs sm:text-sm hover:bg-slate-200 dark:hover:bg-slate-700 transition border border-slate-200/80 dark:border-slate-700"
+                  className="w-full bg-emerald-50/70 dark:bg-slate-800 text-emerald-800 dark:text-slate-200 font-bold py-2.5 px-3 rounded-xl text-xs sm:text-sm hover:bg-emerald-100 dark:hover:bg-slate-700 disabled:opacity-50 transition border border-emerald-200/70 dark:border-slate-700"
                 >
                   Mock Exam (100)
                 </button>
               </div>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* CARD 2: WEAKNESS MODE */}
-        <div
-          className={
-            mobileMode === 'weakness'
-              ? 'block animate-in fade-in slide-in-from-bottom-2 duration-300'
-              : 'hidden md:block'
-          }
-        >
-          <div className="bg-white dark:bg-slate-900 p-5 sm:p-6 rounded-2xl border border-red-200/80 dark:border-red-500/25 shadow-xs transition-colors">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-extrabold text-slate-800 dark:text-white tracking-tight flex items-center gap-2">
-                <AlertCircle className="w-5 h-5 text-red-500 shrink-0" />
-                Weakness Mode
-              </h3>
+        {/* MODE 2: WEAKNESS MODE (Red Theme + Single-Select Subject Chips) */}
+        {activeMode === 'weakness' && (
+          <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-2xl border border-red-200/80 dark:border-red-500/25 shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="flex items-center justify-between gap-2 mb-4">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-lg font-extrabold text-slate-800 dark:text-white tracking-tight flex items-center gap-2">
+                  <AlertCircle className="w-5 h-5 text-red-500 shrink-0" />
+                  Weakness Mode
+                </h3>
+                {weaknessMatchCount !== null && (
+                  <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-red-50 dark:bg-red-500/15 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-500/30 animate-in fade-in duration-200">
+                    {weaknessMatchCount} missed
+                  </span>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={resetWeaknessMode}
-                className="flex items-center gap-1 text-xs font-bold text-slate-400 hover:text-slate-800 dark:hover:text-white transition"
+                className="flex items-center gap-1 text-xs font-bold text-slate-400 hover:text-slate-800 dark:hover:text-white transition shrink-0"
               >
                 <RotateCcw className="w-3.5 h-3.5" /> Reset
               </button>
             </div>
 
-            <div className="mb-4">
-              <select
-                value={weaknessSubject}
-                onChange={(e) => setWeaknessSubject(e.target.value)}
-                className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm font-semibold text-slate-800 dark:text-white outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all"
-              >
-                <option value="" disabled>
-                  Choose subject
-                </option>
-                {SUBJECTS.map((subj) => (
-                  <option key={subj} value={subj}>
-                    {subj}
-                  </option>
-                ))}
-              </select>
+            <div className="mb-5">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
+                Select Subject
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {SUBJECTS.map((subj) => {
+                  const isSelected = weaknessSubject === subj;
+                  return (
+                    <button
+                      key={subj}
+                      type="button"
+                      onClick={() => setWeaknessSubject(isSelected ? '' : subj)}
+                      className={`py-2 px-3 rounded-xl border text-sm font-bold transition-all active:scale-[0.98] ${
+                        isSelected
+                          ? 'bg-red-600 border-red-600 text-white shadow-sm'
+                          : 'bg-white dark:bg-slate-800/90 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-slate-400 dark:hover:border-slate-500'
+                      }`}
+                    >
+                      {subj}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             <button
               type="button"
               onClick={handleStartWeakness}
-              className="w-full bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-400 font-bold py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-red-100 dark:hover:bg-red-500/25 transition border border-red-200 dark:border-red-500/30 active:scale-[0.99]"
+              className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition shadow-sm active:scale-[0.99]"
             >
               <Play className="w-4 h-4 fill-current" /> Review Missed Items
             </button>
           </div>
-        </div>
+        )}
 
-        {/* CARD 3: FLASHCARD MODE */}
-        <div
-          className={
-            mobileMode === 'flashcards'
-              ? 'block animate-in fade-in slide-in-from-bottom-2 duration-300'
-              : 'hidden md:block'
-          }
-        >
-          <div className="bg-white dark:bg-slate-900 p-5 sm:p-6 rounded-2xl border border-indigo-200/80 dark:border-indigo-500/25 shadow-xs transition-colors">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-extrabold text-slate-800 dark:text-white tracking-tight flex items-center gap-2">
-                <Layers className="w-5 h-5 text-indigo-500 shrink-0" />
-                Flashcard Mode
-              </h3>
+        {/* MODE 3: FLASHCARD MODE (Blue Theme) */}
+        {activeMode === 'flashcards' && (
+          <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-2xl border border-blue-200/80 dark:border-blue-500/25 shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="flex items-center justify-between gap-2 mb-3.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-lg font-extrabold text-slate-800 dark:text-white tracking-tight flex items-center gap-2">
+                  <Layers className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0" />
+                  Flashcard Mode
+                </h3>
+                {fcMatchCount !== null && (
+                  <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30 animate-in fade-in duration-200">
+                    {fcMatchCount.toLocaleString()} {fcMatchCount === 1 ? 'item' : 'items'}
+                  </span>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={resetFlashcardMode}
-                className="flex items-center gap-1 text-xs font-bold text-slate-400 hover:text-slate-800 dark:hover:text-white transition"
+                className="flex items-center gap-1 text-xs font-bold text-slate-400 hover:text-slate-800 dark:hover:text-white transition shrink-0"
               >
                 <RotateCcw className="w-3.5 h-3.5" /> Reset
               </button>
@@ -617,28 +872,36 @@ export default function Dashboard({
               sets={fcSets}
               onToggleSet={toggleFcSet}
               onSelectAllSets={() => setFcSets([])}
+              setSearch={fcSetSearch}
+              onSetSearchChange={setFcSetSearch}
               types={fcTypes}
               onToggleType={toggleFcType}
               filterData={filterData}
-              accentColor="indigo"
+              theme="blue"
             />
 
             <button
               type="button"
+              disabled={fcMatchCount === 0}
               onClick={handleStartFlashcards}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition shadow-xs active:scale-[0.99]"
+              className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold py-2.5 sm:py-3 rounded-xl flex items-center justify-center gap-2 transition shadow-sm active:scale-[0.99]"
             >
-              <Play className="w-4 h-4 fill-current" /> Start Flashcards
+              <Play className="w-4 h-4 fill-current" />
+              <span>
+                {fcMatchCount !== null && fcMatchCount > 0
+                  ? `Start Flashcards (${Math.min(fcMatchCount, 100)})`
+                  : 'Start Flashcards'}
+              </span>
             </button>
           </div>
-        </div>
+        )}
       </div>
 
-      {/* 3. RIGHT COLUMN: Overall Stats, Subject Performance & Monthly Calendar Heatmap */}
-      <div className="md:col-span-7 lg:col-span-8 flex flex-col gap-6 h-max mt-2 md:mt-0">
+      {/* 3. RIGHT COLUMN: Overall Stats, Subject Performance & Compact GitHub Calendar Heatmap */}
+      <div className="md:col-span-7 lg:col-span-8 flex flex-col gap-5 h-max mt-2 md:mt-0">
         {/* Row 1: Overall Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex items-center gap-4">
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-4">
             <div className="p-3.5 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl shrink-0">
               <CheckCircle className="text-emerald-500 w-7 h-7" />
             </div>
@@ -652,7 +915,7 @@ export default function Dashboard({
             </div>
           </div>
 
-          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex items-center gap-4">
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-4">
             <div className="p-3.5 bg-amber-50 dark:bg-amber-900/20 rounded-xl shrink-0">
               <Clock className="text-amber-500 w-7 h-7" />
             </div>
@@ -666,7 +929,7 @@ export default function Dashboard({
             </div>
           </div>
 
-          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex items-center gap-4">
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-4">
             <div className="p-3.5 bg-blue-50 dark:bg-blue-900/20 rounded-xl shrink-0">
               <BookOpen className="text-blue-500 w-7 h-7" />
             </div>
@@ -686,20 +949,22 @@ export default function Dashboard({
           {SUBJECTS.map(renderSubjectCard)}
         </div>
 
-        {/* Row 3: Swipeable Minimal Monthly Calendar Heatmap */}
+        {/* Row 3: Compact GitHub Heatmap (1-Month Swipeable on Mobile | Side-by-Side 2-Month on Large Screens) */}
         <div
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
-          className="bg-white dark:bg-slate-900 p-5 sm:p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs select-none"
+          className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm select-none"
         >
-          {/* Header: Activity Tracker + Month Year (e.g., Nov 26) */}
-          <div className="flex items-start justify-between mb-5">
+          <div className="flex items-start justify-between mb-4">
             <div>
-              <h3 className="text-lg font-extrabold text-slate-800 dark:text-white tracking-tight">
+              <h3 className="text-base sm:text-lg font-extrabold text-slate-800 dark:text-white tracking-tight">
                 Activity Tracker
               </h3>
-              <div className="text-sm font-bold text-slate-500 dark:text-slate-400 mt-0.5">
-                {monthYearLabel}
+              <div className="text-xs sm:text-sm font-bold text-slate-500 dark:text-slate-400 mt-0.5">
+                <span className="lg:hidden">{currentMonthData.label}</span>
+                <span className="hidden lg:inline">
+                  {prevMonthData.label} – {currentMonthData.label}
+                </span>
               </div>
             </div>
 
@@ -723,58 +988,46 @@ export default function Dashboard({
             </div>
           </div>
 
-          {/* 7-Column Weekday Headers */}
-          <div className="grid grid-cols-7 gap-1.5 sm:gap-2 mb-2 text-center">
-            {WEEKDAYS.map((dayName) => (
-              <div
-                key={dayName}
-                className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500"
-              >
-                {dayName}
+          {/* Mobile/Tablet: Single Month | Desktop (lg+): Side-by-Side 2 Consecutive Months */}
+          <div className="flex flex-col lg:flex-row items-center lg:items-start justify-center lg:justify-evenly gap-6 py-1">
+            <div className="hidden lg:block">
+              <CompactMonthHeatmap
+                monthData={prevMonthData}
+                onSelectCell={setSelectedDayInfo}
+                showMonthSubheader={true}
+              />
+            </div>
+
+            <div>
+              <div className="hidden lg:block">
+                <CompactMonthHeatmap
+                  monthData={currentMonthData}
+                  onSelectCell={setSelectedDayInfo}
+                  showMonthSubheader={true}
+                />
               </div>
-            ))}
+              <div className="lg:hidden">
+                <CompactMonthHeatmap
+                  monthData={currentMonthData}
+                  onSelectCell={setSelectedDayInfo}
+                  showMonthSubheader={false}
+                />
+              </div>
+            </div>
           </div>
 
-          {/* Calendar Days Heatmap Grid */}
-          <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
-            {calendarGrid.map((cell) => {
-              if (cell.empty) {
-                return <div key={cell.key} className="aspect-square" />;
-              }
-              return (
-                <button
-                  key={cell.key}
-                  type="button"
-                  onClick={() => setSelectedDayInfo(cell)}
-                  title={`${cell.dateStr}: ${cell.count} items`}
-                  className={`aspect-square rounded-lg flex items-center justify-center text-xs font-bold transition-transform active:scale-95 ${
-                    levelStyles[cell.level]
-                  } ${
-                    cell.isToday
-                      ? 'ring-2 ring-blue-500 ring-offset-1 dark:ring-offset-slate-900'
-                      : ''
-                  }`}
-                >
-                  {cell.day}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Footer: Selected Day Readout + Intensity Scale */}
+          {/* Footer: Selected Tile Readout + Authentic GitHub Scale */}
           <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 text-xs text-slate-400">
             <span>
               {selectedDayInfo
                 ? `${selectedDayInfo.dateStr}: ${selectedDayInfo.count} items`
-                : 'Swipe left or right to pan months'}
+                : 'Tap or hover a square for details'}
             </span>
             <div className="flex items-center gap-1">
               <span className="mr-1 text-[10px]">Less</span>
-              <span className="w-2.5 h-2.5 rounded-xs bg-slate-100 dark:bg-slate-800" />
-              <span className="w-2.5 h-2.5 rounded-xs bg-emerald-200 dark:bg-emerald-950" />
-              <span className="w-2.5 h-2.5 rounded-xs bg-emerald-400 dark:bg-emerald-800" />
-              <span className="w-2.5 h-2.5 rounded-xs bg-emerald-500 dark:bg-emerald-600" />
-              <span className="w-2.5 h-2.5 rounded-xs bg-emerald-700 dark:bg-emerald-500" />
+              {GITHUB_LEVEL_CLASSES.map((cls, idx) => (
+                <span key={idx} className={`w-3 h-3 rounded-[2px] ${cls}`} />
+              ))}
               <span className="ml-1 text-[10px]">More</span>
             </div>
           </div>
