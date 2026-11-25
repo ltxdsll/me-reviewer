@@ -5,10 +5,11 @@ import { LogOut, Moon, Sun, Menu, X, Eye, EyeOff } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import Analytics from './components/Analytics';
 import StudyHistory from './components/StudyHistory';
-import SavedItems from './components/SavedItems'; // NEW IMPORT
+import SavedItems from './components/SavedItems';
 import Settings from './components/Settings';
 import QuizActive from './components/QuizActive';
 import QuizResults from './components/QuizResults';
+import FlashcardMode from './components/FlashcardMode';
 
 export default function App() {
   const [session, setSession] = useState(null);
@@ -75,7 +76,7 @@ export default function App() {
 
   const loadUserStats = async (userId) => {
     try {
-      const { data, error } = await supabase.from('user_stats').select('stats_data').eq('user_id', userId).single();
+      const { data } = await supabase.from('user_stats').select('stats_data').eq('user_id', userId).single();
       if (data && data.stats_data) {
         const s = data.stats_data;
         if (!s.subjects) s.subjects = {};
@@ -101,10 +102,10 @@ export default function App() {
   };
 
   const fetchFilters = async () => {
-  const { data, error } = await supabase.from('unique_filters').select('*');
-  if (error) console.error("Error fetching filters:", error);
-  if (data) setFilterData(data);
-};
+    const { data, error } = await supabase.from('unique_filters').select('*');
+    if (error) console.error("Error fetching filters:", error);
+    if (data) setFilterData(data);
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -131,29 +132,45 @@ export default function App() {
     }
   };
 
+  const fetchFormattedQuestions = async (selectedSubject, selectedSets, selectedTypes, limit) => {
+    const { data, error } = await supabase.rpc('get_random_questions', {
+      p_subject: selectedSubject,
+      p_sets: selectedSets && selectedSets.length > 0 ? selectedSets : null,
+      p_types: selectedTypes && selectedTypes.length > 0 ? selectedTypes : null,
+      p_limit: limit
+    });
+
+    if (error) throw error;
+    if (!data || data.length === 0) return null;
+
+    return data.map(q => {
+      const correctMap = { 'A': q.option_a, 'B': q.option_b, 'C': q.option_c, 'D': q.option_d };
+      const correctText = correctMap[String(q.correct_answer).toUpperCase()] || q.option_a;
+      const options = [q.option_a, q.option_b, q.option_c, q.option_d].sort(() => Math.random() - 0.5);
+      return { ...q, choices: options, correct_text: correctText };
+    });
+  };
+
   const startQuiz = async (selectedSubject, selectedSets, selectedTypes, limit) => {
     try {
-      const { data, error } = await supabase.rpc('get_random_questions', {
-        p_subject: selectedSubject,
-        p_sets: selectedSets && selectedSets.length > 0 ? selectedSets : null,
-        p_types: selectedTypes && selectedTypes.length > 0 ? selectedTypes : null,
-        p_limit: limit
-      });
-
-      if (error) throw error;
-      if (!data || data.length === 0) return alert("No questions found for these specific filters.");
-
-      const formatted = data.map(q => {
-        const correctMap = { 'A': q.option_a, 'B': q.option_b, 'C': q.option_c, 'D': q.option_d };
-        const correctText = correctMap[String(q.correct_answer).toUpperCase()] || q.option_a;
-        const options = [q.option_a, q.option_b, q.option_c, q.option_d].sort(() => Math.random() - 0.5);
-        return { ...q, choices: options, correct_text: correctText };
-      });
-
+      const formatted = await fetchFormattedQuestions(selectedSubject, selectedSets, selectedTypes, limit);
+      if (!formatted) return alert("No questions found for these specific filters.");
       setQuestions(formatted);
       setView('quiz');
     } catch (error) {
       alert("Error generating quiz: " + error.message);
+    }
+  };
+
+  // NEW: Launches Flashcards without logging history or stats
+  const startFlashcards = async (selectedSubject, selectedSets, selectedTypes, limit) => {
+    try {
+      const formatted = await fetchFormattedQuestions(selectedSubject, selectedSets, selectedTypes, limit);
+      if (!formatted) return alert("No questions found for these specific filters.");
+      setQuestions(formatted);
+      setView('flashcards');
+    } catch (error) {
+      alert("Error generating flashcards: " + error.message);
     }
   };
 
@@ -320,13 +337,23 @@ export default function App() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 md:px-10 md:pb-10 pt-0 relative flex flex-col">
-          {view === 'dashboard' && activeTab === 'Dashboard' && <Dashboard stats={stats} filterData={filterData} onStartQuiz={startQuiz} onStartWeaknessQuiz={startWeaknessQuiz} surname={session.user.user_metadata?.last_name || ''} />}
+          {view === 'dashboard' && activeTab === 'Dashboard' && (
+            <Dashboard
+              stats={stats}
+              filterData={filterData}
+              onStartQuiz={startQuiz}
+              onStartWeaknessQuiz={startWeaknessQuiz}
+              onStartFlashcards={startFlashcards}
+              surname={session.user.user_metadata?.last_name || ''}
+            />
+          )}
           {view === 'dashboard' && activeTab === 'Analytics' && <Analytics stats={stats} />}
           {view === 'dashboard' && activeTab === 'Study History' && <StudyHistory userId={session.user.id} />}
           {view === 'dashboard' && activeTab === 'Saved Items' && <SavedItems userId={session.user.id} />}
           {view === 'dashboard' && activeTab === 'Settings' && <Settings />}
           
           {view === 'quiz' && questions.length > 0 && <QuizActive questions={questions} onComplete={handleQuizComplete} />}
+          {view === 'flashcards' && questions.length > 0 && <FlashcardMode questions={questions} onExit={() => setView('dashboard')} />}
           {view === 'results' && <QuizResults results={quizResults} score={quizScore} onBack={() => setView('dashboard')} />}
         </div>
       </div>

@@ -17,14 +17,12 @@ import {
 const SUBJECTS = ['PIPE', 'MDSP', 'MESL'];
 const WEEKDAYS = ['Su', 'M', 'Tu', 'W', 'Th', 'F', 'Sa'];
 
-// Updated Themes: Review = Green (Emerald), Weakness = Red, Flashcards = Blue
 const MODES = [
   { id: 'review', label: 'Review', activeText: 'text-emerald-600 dark:text-emerald-400' },
   { id: 'weakness', label: 'Weakness', activeText: 'text-red-600 dark:text-red-400' },
   { id: 'flashcards', label: 'Flashcards', activeText: 'text-blue-600 dark:text-blue-400' }
 ];
 
-// Classic GitHub Contribution Heatmap Palette (Light & Dark)
 const GITHUB_LEVEL_CLASSES = [
   'bg-[#ebedf0] dark:bg-[#1e293b]',
   'bg-[#9be9a8] dark:bg-[#0e4429]',
@@ -46,7 +44,7 @@ const toLocalDateStr = (year, monthIndex, day) => {
 function buildMonthCalendar(baseDate, historyMap) {
   const year = baseDate.getFullYear();
   const month = baseDate.getMonth();
-  const firstDayIndex = new Date(year, month, 1).getDay(); // 0 (Su) - 6 (Sa)
+  const firstDayIndex = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
   const today = new Date();
@@ -86,7 +84,6 @@ function buildMonthCalendar(baseDate, historyMap) {
   };
 }
 
-// Hook for Live Matching Question Count (Instant via item_count, with DB head-count fallback)
 function useMatchingQuestionCount(subject, sets, types, filterData) {
   const hasPrecomputedCounts = useMemo(
     () => Array.isArray(filterData) && filterData.some((d) => typeof d.item_count === 'number'),
@@ -140,7 +137,36 @@ function useMatchingQuestionCount(subject, sets, types, filterData) {
   return hasPrecomputedCounts ? instantCount : fallbackCount;
 }
 
-// Reusable Filter Group for Review Mode (Emerald) & Flashcard Mode (Blue)
+function ModeSwitcherBar({ activeMode, onChange, activeModeIndex }) {
+  return (
+    <div className="bg-slate-200/75 dark:bg-slate-800/90 p-1 rounded-xl border border-slate-200/80 dark:border-slate-700/80">
+      <div className="relative grid grid-cols-3">
+        <div
+          className="absolute inset-y-0 left-0 w-1/3 bg-white dark:bg-slate-900 rounded-lg shadow-sm transition-transform duration-300 ease-out pointer-events-none"
+          style={{ transform: `translateX(${activeModeIndex * 100}%)` }}
+        />
+        {MODES.map((mode) => {
+          const isActive = activeMode === mode.id;
+          return (
+            <button
+              key={mode.id}
+              type="button"
+              onClick={() => onChange(mode.id)}
+              className={`relative z-10 py-2.5 text-xs font-extrabold tracking-wide rounded-lg transition-colors duration-200 ${
+                isActive
+                  ? mode.activeText
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+              }`}
+            >
+              {mode.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function ModeFilterSelectors({
   subject,
   onSelectSubject,
@@ -227,7 +253,7 @@ function ModeFilterSelectors({
         </div>
       </div>
 
-      {/* 2. Multi-Select Sets with Inline Search + Expanded Mobile Scroll Viewport */}
+      {/* 2. Multi-Select Sets with Inline Search + Scrollable Viewport */}
       <div>
         <div className="flex items-center justify-between mb-1.5">
           <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -254,7 +280,6 @@ function ModeFilterSelectors({
           </div>
         ) : (
           <div className="rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/80 p-2 space-y-2">
-            {/* Inline Set Search Input (16px on mobile prevents iOS Safari auto-zoom) */}
             <div className="relative">
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
@@ -277,7 +302,6 @@ function ModeFilterSelectors({
               )}
             </div>
 
-            {/* Expanded Mobile Viewport calibrated so full Review Mode fits above the fold */}
             <div className="max-h-[clamp(9.5rem,22dvh,13.5rem)] md:max-h-48 overflow-y-auto pr-1 flex flex-wrap gap-1.5 content-start">
               {!setSearch.trim() && (
                 <button
@@ -354,7 +378,6 @@ function ModeFilterSelectors({
   );
 }
 
-// Compact GitHub-Style Monthly Heatmap Sub-Grid
 function CompactMonthHeatmap({ monthData, onSelectCell, showMonthSubheader = false }) {
   return (
     <div className="flex flex-col items-center">
@@ -364,7 +387,6 @@ function CompactMonthHeatmap({ monthData, onSelectCell, showMonthSubheader = fal
         </div>
       )}
 
-      {/* 7-Column Weekday Headers */}
       <div className="grid grid-cols-7 gap-1.5 mb-1.5 text-center">
         {WEEKDAYS.map((dayName) => (
           <div
@@ -376,7 +398,6 @@ function CompactMonthHeatmap({ monthData, onSelectCell, showMonthSubheader = fal
         ))}
       </div>
 
-      {/* GitHub Heatmap Tiles */}
       <div className="grid grid-cols-7 gap-1.5">
         {monthData.cells.map((cell) => {
           if (cell.empty) {
@@ -412,26 +433,25 @@ export default function Dashboard({
   onStartFlashcards,
   surname
 }) {
-  // Unified Mode Switcher State (Active on BOTH Mobile & Desktop)
   const [activeMode, setActiveMode] = useState('review');
 
-  // 1. Review Mode State (Emerald Theme)
+  // 1. Review Mode State
   const [reviewSubject, setReviewSubject] = useState('');
   const [reviewSets, setReviewSets] = useState([]);
   const [reviewSetSearch, setReviewSetSearch] = useState('');
   const [reviewTypes, setReviewTypes] = useState([]);
 
-  // 2. Weakness Mode State (Red Theme)
+  // 2. Weakness Mode State
   const [weaknessSubject, setWeaknessSubject] = useState('');
   const [missedCountsBySubject, setMissedCountsBySubject] = useState(null);
 
-  // 3. Flashcard Mode State (Blue Theme)
+  // 3. Flashcard Mode State
   const [fcSubject, setFcSubject] = useState('');
   const [fcSets, setFcSets] = useState([]);
   const [fcSetSearch, setFcSetSearch] = useState('');
   const [fcTypes, setFcTypes] = useState([]);
 
-  // 4. Calendar Heatmap State & Touch Swipe Ref
+  // 4. Calendar Heatmap State
   const [calendarDate, setCalendarDate] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -439,7 +459,6 @@ export default function Dashboard({
   const [selectedDayInfo, setSelectedDayInfo] = useState(null);
   const touchStartX = useRef(null);
 
-  // Live Matching Question Counts for Review & Flashcards
   const reviewMatchCount = useMatchingQuestionCount(
     reviewSubject,
     reviewSets,
@@ -448,7 +467,6 @@ export default function Dashboard({
   );
   const fcMatchCount = useMatchingQuestionCount(fcSubject, fcSets, fcTypes, filterData);
 
-  // Live Missed Item Counts per Subject for Weakness Mode
   useEffect(() => {
     let cancelled = false;
     async function loadMissedCounts() {
@@ -567,7 +585,7 @@ export default function Dashboard({
     onStartFlashcards(fcSubject, fcSets, fcTypes, 100);
   };
 
-  // Monthly Calendar Navigation & Swipe
+  // Calendar Navigation & Touch Swipe
   const changeMonth = (offset) => {
     setCalendarDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + offset, 1));
     setSelectedDayInfo(null);
@@ -610,6 +628,17 @@ export default function Dashboard({
   const weaknessMatchCount =
     weaknessSubject && missedCountsBySubject ? missedCountsBySubject[weaknessSubject] : null;
 
+  const activeSubjects = SUBJECTS.filter(
+    (subj) => stats.subjects[subj] && stats.subjects[subj].total > 0
+  );
+
+  const desktopLeftBorderAccent =
+    activeMode === 'review'
+      ? 'md:border-emerald-500/25'
+      : activeMode === 'weakness'
+      ? 'md:border-red-500/25'
+      : 'md:border-blue-500/25';
+
   const renderSubjectCard = (subjectName) => {
     const s = stats.subjects[subjectName];
     if (!s || s.total === 0) return null;
@@ -629,21 +658,21 @@ export default function Dashboard({
     return (
       <div
         key={subjectName}
-        className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm"
+        className="bg-white dark:bg-slate-900 md:bg-slate-50/80 md:dark:bg-slate-800/50 p-5 md:p-4 rounded-2xl md:rounded-xl border border-slate-200 dark:border-slate-800 md:border-slate-200/70 md:dark:border-slate-700/60 shadow-sm md:shadow-none"
       >
         <h4 className="font-bold text-slate-800 dark:text-white mb-3 flex items-center justify-between">
-          {subjectName}
-          <span className="text-xs font-normal text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">
+          <span>{subjectName}</span>
+          <span className="text-xs font-normal text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 md:bg-white md:dark:bg-slate-900/80 px-2 py-0.5 rounded">
             {s.total} items
           </span>
         </h4>
-        <div className="space-y-3">
+        <div className="space-y-2.5">
           <div>
             <div className="flex justify-between text-xs mb-1 text-slate-600 dark:text-slate-400 font-medium">
               <span>Problem Solving</span>
               <span>{probAcc}%</span>
             </div>
-            <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5">
+            <div className="w-full bg-slate-100 dark:bg-slate-800 md:bg-slate-200/70 md:dark:bg-slate-900 rounded-full h-1.5">
               <div
                 className="bg-blue-500 h-1.5 rounded-full transition-all"
                 style={{ width: `${probAcc}%` }}
@@ -655,7 +684,7 @@ export default function Dashboard({
               <span>Elements</span>
               <span>{elemAcc}%</span>
             </div>
-            <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5">
+            <div className="w-full bg-slate-100 dark:bg-slate-800 md:bg-slate-200/70 md:dark:bg-slate-900 rounded-full h-1.5">
               <div
                 className="bg-emerald-500 h-1.5 rounded-full transition-all"
                 style={{ width: `${elemAcc}%` }}
@@ -668,9 +697,9 @@ export default function Dashboard({
   };
 
   return (
-    <div className="flex flex-col md:grid md:grid-cols-12 gap-3.5 md:gap-8 max-w-6xl mx-auto animate-in fade-in duration-500 w-full pb-8">
-      {/* 1. GREETING */}
-      <div className="md:col-span-12 pt-1 md:pt-2">
+    <div className="flex flex-col md:grid md:grid-cols-2 md:items-start gap-3.5 md:gap-8 max-w-7xl mx-auto animate-in fade-in duration-500 w-full pb-8">
+      {/* GREETING (Full Width Across Top) */}
+      <div className="md:col-span-2 pt-1 md:pt-2">
         <h1 className="font-bold">
           <div className="text-lg md:text-2xl text-slate-500 dark:text-slate-400 font-medium">
             Welcome back,
@@ -681,38 +710,33 @@ export default function Dashboard({
         </h1>
       </div>
 
-      {/* 2. LEFT COLUMN: Unified Mode Switcher (Mobile + Desktop) + Active Mode Card */}
-      <div className="md:col-span-5 lg:col-span-4 flex flex-col gap-3.5 h-max">
-        {/* UNIFIED MODE SWITCHER TABS (Mobile & Desktop) */}
-        <div className="bg-slate-200/75 dark:bg-slate-800/90 p-1 rounded-2xl border border-slate-200/80 dark:border-slate-700/80">
-          <div className="relative grid grid-cols-3">
-            <div
-              className="absolute inset-y-0 left-0 w-1/3 bg-white dark:bg-slate-900 rounded-xl shadow-sm transition-transform duration-300 ease-out pointer-events-none"
-              style={{ transform: `translateX(${activeModeIndex * 100}%)` }}
-            />
-            {MODES.map((mode) => {
-              const isActive = activeMode === mode.id;
-              return (
-                <button
-                  key={mode.id}
-                  type="button"
-                  onClick={() => setActiveMode(mode.id)}
-                  className={`relative z-10 py-2.5 text-xs font-extrabold tracking-wide rounded-xl transition-colors duration-200 ${
-                    isActive
-                      ? mode.activeText
-                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
-                  }`}
-                >
-                  {mode.label}
-                </button>
-              );
-            })}
-          </div>
+      {/* MOBILE-ONLY STANDALONE MODE SWITCHER (Preserves Mobile View) */}
+      <div className="md:hidden">
+        <ModeSwitcherBar
+          activeMode={activeMode}
+          onChange={setActiveMode}
+          activeModeIndex={activeModeIndex}
+        />
+      </div>
+
+      {/* =========================================================
+          GROUP 1 (LEFT 50% ON DESKTOP): UNIFIED STUDY SETUP GROUP
+         ========================================================= */}
+      <div
+        className={`w-full md:bg-white md:dark:bg-slate-900 md:p-6 md:rounded-2xl md:border border-slate-200 dark:border-slate-800 ${desktopLeftBorderAccent} md:shadow-sm transition-colors`}
+      >
+        {/* Embedded Mode Switcher Inside Group 1 on Desktop */}
+        <div className="hidden md:block mb-5">
+          <ModeSwitcherBar
+            activeMode={activeMode}
+            onChange={setActiveMode}
+            activeModeIndex={activeModeIndex}
+          />
         </div>
 
-        {/* MODE 1: REVIEW MODE (Green / Emerald Theme) */}
+        {/* REVIEW MODE */}
         {activeMode === 'review' && (
-          <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-2xl border border-emerald-200/80 dark:border-emerald-500/25 shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <div className="bg-white dark:bg-slate-900 md:bg-transparent md:dark:bg-transparent p-4 sm:p-6 md:p-0 rounded-2xl md:rounded-none border border-emerald-200/80 dark:border-emerald-500/25 md:border-0 shadow-sm md:shadow-none animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div className="flex items-center justify-between gap-2 mb-3.5">
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-lg font-extrabold text-slate-800 dark:text-white tracking-tight">
@@ -783,9 +807,9 @@ export default function Dashboard({
           </div>
         )}
 
-        {/* MODE 2: WEAKNESS MODE (Red Theme + Single-Select Subject Chips) */}
+        {/* WEAKNESS MODE */}
         {activeMode === 'weakness' && (
-          <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-2xl border border-red-200/80 dark:border-red-500/25 shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <div className="bg-white dark:bg-slate-900 md:bg-transparent md:dark:bg-transparent p-4 sm:p-6 md:p-0 rounded-2xl md:rounded-none border border-red-200/80 dark:border-red-500/25 md:border-0 shadow-sm md:shadow-none animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div className="flex items-center justify-between gap-2 mb-4">
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-lg font-extrabold text-slate-800 dark:text-white tracking-tight flex items-center gap-2">
@@ -842,9 +866,9 @@ export default function Dashboard({
           </div>
         )}
 
-        {/* MODE 3: FLASHCARD MODE (Blue Theme) */}
+        {/* FLASHCARD MODE */}
         {activeMode === 'flashcards' && (
-          <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-2xl border border-blue-200/80 dark:border-blue-500/25 shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <div className="bg-white dark:bg-slate-900 md:bg-transparent md:dark:bg-transparent p-4 sm:p-6 md:p-0 rounded-2xl md:rounded-none border border-blue-200/80 dark:border-blue-500/25 md:border-0 shadow-sm md:shadow-none animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div className="flex items-center justify-between gap-2 mb-3.5">
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-lg font-extrabold text-slate-800 dark:text-white tracking-tight flex items-center gap-2">
@@ -897,63 +921,75 @@ export default function Dashboard({
         )}
       </div>
 
-      {/* 3. RIGHT COLUMN: Overall Stats, Subject Performance & Compact GitHub Calendar Heatmap */}
-      <div className="md:col-span-7 lg:col-span-8 flex flex-col gap-5 h-max mt-2 md:mt-0">
-        {/* Row 1: Overall Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-4">
-            <div className="p-3.5 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl shrink-0">
-              <CheckCircle className="text-emerald-500 w-7 h-7" />
+      {/* =========================================================
+          GROUP 2 (RIGHT 50% ON DESKTOP): UNIFIED STATS & ACTIVITY GROUP
+         ========================================================= */}
+      <div className="w-full flex flex-col gap-5 md:gap-0 md:bg-white md:dark:bg-slate-900 md:p-6 md:rounded-2xl md:border md:border-slate-200 md:dark:border-slate-800 md:shadow-sm md:divide-y md:divide-slate-200 md:dark:divide-slate-800 mt-2 md:mt-0">
+        {/* Section 1: Overall Stats */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 md:pb-5">
+          <div className="bg-white dark:bg-slate-900 md:bg-slate-50/80 md:dark:bg-slate-800/50 p-4 rounded-2xl md:rounded-xl border border-slate-200 dark:border-slate-800 md:border-slate-200/70 md:dark:border-slate-700/60 shadow-sm md:shadow-none flex items-center md:flex-col xl:flex-row md:items-start xl:items-center gap-3.5 md:gap-2 xl:gap-3">
+            <div className="p-2.5 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl shrink-0">
+              <CheckCircle className="text-emerald-500 w-6 h-6" />
             </div>
-            <div>
-              <div className="text-2xl font-black text-slate-800 dark:text-white leading-tight">
+            <div className="min-w-0">
+              <div className="text-2xl md:text-xl xl:text-2xl font-black text-slate-800 dark:text-white leading-tight">
                 {accuracy}%
               </div>
-              <div className="font-semibold text-xs text-slate-500 dark:text-slate-400">
+              <div className="font-semibold text-[11px] text-slate-500 dark:text-slate-400 truncate">
                 Overall Accuracy
               </div>
             </div>
           </div>
 
-          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-4">
-            <div className="p-3.5 bg-amber-50 dark:bg-amber-900/20 rounded-xl shrink-0">
-              <Clock className="text-amber-500 w-7 h-7" />
+          <div className="bg-white dark:bg-slate-900 md:bg-slate-50/80 md:dark:bg-slate-800/50 p-4 rounded-2xl md:rounded-xl border border-slate-200 dark:border-slate-800 md:border-slate-200/70 md:dark:border-slate-700/60 shadow-sm md:shadow-none flex items-center md:flex-col xl:flex-row md:items-start xl:items-center gap-3.5 md:gap-2 xl:gap-3">
+            <div className="p-2.5 bg-amber-50 dark:bg-amber-900/20 rounded-xl shrink-0">
+              <Clock className="text-amber-500 w-6 h-6" />
             </div>
-            <div>
-              <div className="text-2xl font-black text-slate-800 dark:text-white leading-tight">
+            <div className="min-w-0">
+              <div className="text-2xl md:text-xl xl:text-2xl font-black text-slate-800 dark:text-white leading-tight">
                 {formatTime(avgTime)}
               </div>
-              <div className="font-semibold text-xs text-slate-500 dark:text-slate-400">
+              <div className="font-semibold text-[11px] text-slate-500 dark:text-slate-400 truncate">
                 Avg Time
               </div>
             </div>
           </div>
 
-          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-4">
-            <div className="p-3.5 bg-blue-50 dark:bg-blue-900/20 rounded-xl shrink-0">
-              <BookOpen className="text-blue-500 w-7 h-7" />
+          <div className="bg-white dark:bg-slate-900 md:bg-slate-50/80 md:dark:bg-slate-800/50 p-4 rounded-2xl md:rounded-xl border border-slate-200 dark:border-slate-800 md:border-slate-200/70 md:dark:border-slate-700/60 shadow-sm md:shadow-none flex items-center md:flex-col xl:flex-row md:items-start xl:items-center gap-3.5 md:gap-2 xl:gap-3">
+            <div className="p-2.5 bg-blue-50 dark:bg-blue-900/20 rounded-xl shrink-0">
+              <BookOpen className="text-blue-500 w-6 h-6" />
             </div>
-            <div>
-              <div className="text-2xl font-black text-slate-800 dark:text-white leading-tight">
+            <div className="min-w-0">
+              <div className="text-2xl md:text-xl xl:text-2xl font-black text-slate-800 dark:text-white leading-tight">
                 {stats.totalQuestions}
               </div>
-              <div className="font-semibold text-xs text-slate-500 dark:text-slate-400">
+              <div className="font-semibold text-[11px] text-slate-500 dark:text-slate-400 truncate">
                 Items Done
               </div>
             </div>
           </div>
         </div>
 
-        {/* Row 2: Subject Performance */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {SUBJECTS.map(renderSubjectCard)}
-        </div>
+        {/* Section 2: Subject Performance (Adapts cleanly to 1, 2, or 3 active subjects) */}
+        {activeSubjects.length > 0 && (
+          <div
+            className={`grid grid-cols-1 gap-3.5 md:py-5 ${
+              activeSubjects.length === 1
+                ? 'sm:grid-cols-1'
+                : activeSubjects.length === 2
+                ? 'sm:grid-cols-2'
+                : 'sm:grid-cols-3'
+            }`}
+          >
+            {activeSubjects.map(renderSubjectCard)}
+          </div>
+        )}
 
-        {/* Row 3: Compact GitHub Heatmap (1-Month Swipeable on Mobile | Side-by-Side 2-Month on Large Screens) */}
+        {/* Section 3: Activity Tracker */}
         <div
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
-          className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm select-none"
+          className="bg-white dark:bg-slate-900 md:bg-transparent md:dark:bg-transparent p-5 md:p-0 md:pt-5 rounded-2xl md:rounded-none border border-slate-200 dark:border-slate-800 md:border-0 shadow-sm md:shadow-none select-none"
         >
           <div className="flex items-start justify-between mb-4">
             <div>
@@ -988,7 +1024,6 @@ export default function Dashboard({
             </div>
           </div>
 
-          {/* Mobile/Tablet: Single Month | Desktop (lg+): Side-by-Side 2 Consecutive Months */}
           <div className="flex flex-col lg:flex-row items-center lg:items-start justify-center lg:justify-evenly gap-6 py-1">
             <div className="hidden lg:block">
               <CompactMonthHeatmap
@@ -1016,7 +1051,6 @@ export default function Dashboard({
             </div>
           </div>
 
-          {/* Footer: Selected Tile Readout + Authentic GitHub Scale */}
           <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 text-xs text-slate-400">
             <span>
               {selectedDayInfo
