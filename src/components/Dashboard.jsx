@@ -139,10 +139,10 @@ function useMatchingQuestionCount(subject, sets, types, filterData) {
 
 function ModeSwitcherBar({ activeMode, onChange, activeModeIndex }) {
   return (
-    <div className="bg-slate-200/75 dark:bg-slate-800/90 p-1 rounded-xl border border-slate-200/80 dark:border-slate-700/80">
+    <div className="bg-slate-200/75 dark:bg-slate-800/90 p-1.5 rounded-2xl border border-slate-200/80 dark:border-slate-700/80">
       <div className="relative grid grid-cols-3">
         <div
-          className="absolute inset-y-0 left-0 w-1/3 bg-white dark:bg-slate-900 rounded-lg shadow-sm transition-transform duration-300 ease-out pointer-events-none"
+          className="absolute inset-y-0 left-0 w-1/3 bg-white dark:bg-slate-900 rounded-xl shadow-sm transition-transform duration-300 ease-out pointer-events-none"
           style={{ transform: `translateX(${activeModeIndex * 100}%)` }}
         />
         {MODES.map((mode) => {
@@ -152,7 +152,7 @@ function ModeSwitcherBar({ activeMode, onChange, activeModeIndex }) {
               key={mode.id}
               type="button"
               onClick={() => onChange(mode.id)}
-              className={`relative z-10 py-2.5 text-xs font-extrabold tracking-wide rounded-lg transition-colors duration-200 ${
+              className={`relative z-10 py-3 md:py-3.5 text-sm md:text-base font-extrabold tracking-wide rounded-xl transition-colors duration-200 ${
                 isActive
                   ? mode.activeText
                   : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
@@ -256,7 +256,7 @@ function ModeFilterSelectors({
       {/* 2. Multi-Select Sets with Inline Search + Scrollable Viewport */}
       <div>
         <div className="flex items-center justify-between mb-1.5">
-          <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          <label className="block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             Select Set(s)
           </label>
           {subject && availableSets.length > 0 && (
@@ -327,7 +327,7 @@ function ModeFilterSelectors({
                       key={s}
                       type="button"
                       onClick={() => onToggleSet(s)}
-                      className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition-all ${
+                      className={`px-3 py-1.5 rounded-lg border text-sm font-bold transition-all ${
                         isSelected ? activeChipClass : inactiveChipClass
                       }`}
                     >
@@ -363,7 +363,7 @@ function ModeFilterSelectors({
                   key={type}
                   type="button"
                   onClick={() => onToggleType(type)}
-                  className={`px-3.5 py-2 rounded-xl border text-xs font-bold transition-all active:scale-[0.98] ${
+                  className={`px-3.5 py-2 rounded-xl border text-sm font-bold transition-all active:scale-[0.98] ${
                     isSelected ? activeChipClass : inactiveChipClass
                   }`}
                 >
@@ -668,7 +668,7 @@ export default function Dashboard({
         </h4>
         <div className="space-y-2.5">
           <div>
-            <div className="flex justify-between text-xs mb-1 text-slate-600 dark:text-slate-400 font-medium">
+            <div className="flex justify-between text-sm mb-1 text-slate-600 dark:text-slate-400 font-medium">
               <span>Problem Solving</span>
               <span>{probAcc}%</span>
             </div>
@@ -701,10 +701,10 @@ export default function Dashboard({
       {/* GREETING (Full Width Across Top) */}
       <div className="md:col-span-2 pt-1 md:pt-2">
         <h1 className="font-bold">
-          <div className="text-lg md:text-2xl text-slate-500 dark:text-slate-400 font-medium">
+          <div className="text-xl md:text-2xl text-slate-500 dark:text-slate-400 font-medium">
             Welcome back,
           </div>
-          <div className="text-2xl sm:text-3xl md:text-5xl mt-0.5 text-slate-800 dark:text-white font-black tracking-tight">
+          <div className="text-3xl md:text-5xl mt-0.5 text-slate-800 dark:text-white font-black tracking-tight">
             Engr. {surname}!
           </div>
         </h1>
@@ -739,7 +739,7 @@ export default function Dashboard({
           <div className="bg-white dark:bg-slate-900 md:bg-transparent md:dark:bg-transparent p-4 sm:p-6 md:p-0 rounded-2xl md:rounded-none border border-emerald-200/80 dark:border-emerald-500/25 md:border-0 shadow-sm md:shadow-none animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div className="flex items-center justify-between gap-2 mb-3.5">
               <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-lg font-extrabold text-slate-800 dark:text-white tracking-tight">
+                <h3 className="text-xl font-extrabold text-slate-800 dark:text-white tracking-tight">
                   Review Mode
                 </h3>
                 {reviewMatchCount !== null && (
@@ -812,7 +812,7 @@ export default function Dashboard({
           <div className="bg-white dark:bg-slate-900 md:bg-transparent md:dark:bg-transparent p-4 sm:p-6 md:p-0 rounded-2xl md:rounded-none border border-red-200/80 dark:border-red-500/25 md:border-0 shadow-sm md:shadow-none animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div className="flex items-center justify-between gap-2 mb-4">
               <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-lg font-extrabold text-slate-800 dark:text-white tracking-tight flex items-center gap-2">
+                <h3 className="text-xl font-extrabold text-slate-800 dark:text-white tracking-tight flex items-center gap-2">
                   <AlertCircle className="w-5 h-5 text-red-500 shrink-0" />
                   Weakness Mode
                 </h3>
@@ -832,7 +832,7 @@ export default function Dashboard({
             </div>
 
             <div className="mb-5">
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
+              <label className="block text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
                 Select Subject
               </label>
               <div className="grid grid-cols-3 gap-2">
@@ -932,10 +932,10 @@ export default function Dashboard({
               <CheckCircle className="text-emerald-500 w-6 h-6" />
             </div>
             <div className="min-w-0">
-              <div className="text-2xl md:text-xl xl:text-2xl font-black text-slate-800 dark:text-white leading-tight">
+              <div className="text-2xl xl:text-3xl font-black text-slate-800 dark:text-white leading-tight">
                 {accuracy}%
               </div>
-              <div className="font-semibold text-[11px] text-slate-500 dark:text-slate-400 truncate">
+              <div className="font-semibold text-xs xl:text-sm text-slate-500 dark:text-slate-400 truncate">
                 Overall Accuracy
               </div>
             </div>
